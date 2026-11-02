@@ -1,0 +1,335 @@
+// render.js: draws each frame. It only READS the game; it never changes it.
+//
+// Smooth pixel art: everything is drawn straight onto the big screen canvas,
+// blown up by a WHOLE number (x2, x3, x4...) with smoothing off, so every
+// pixel stays a crisp square. Things that move are placed to the nearest
+// SCREEN pixel (see art/strip.js), and positions are blended between the
+// game's 60 updates a second, so motion looks smooth on any screen.
+import {
+  WIDTH, HEIGHT, GROUND_Y, PLAYER_X, POSE, ZONE, ZONES, KIND, OBSTACLE_STRIDE, DONUT_SIZE, BASE_SPEED,
+} from './world.js';
+import { rect, box, pixelText, OUTLINE } from './art/pixel.js';
+import { setScale, snap } from './art/strip.js';
+import { createNight, ROOF_Y } from './art/night.js';
+import { drawBoy, boyIsMissing, animationLength } from './art/boy.js';
+import { drawHud, drawZoneSign } from './hud.js';
+import { createDowntown } from './art/zones/downtown.js';
+import { createRooftops } from './art/zones/rooftops.js';
+import { createSubway } from './art/zones/subway.js';
+import { createConstruction } from './art/zones/construction.js';
+import { createMarket } from './art/zones/market.js';
+import { createCrosswalk } from './art/zones/crosswalk.js';
+import { createParkHill } from './art/zones/park-hill.js';
+
+// Which zone each obstacle kind belongs to (so the right art draws it)
+const KIND_ZONE = [];
+for (const k of [KIND.CONE, KIND.HYDRANT, KIND.BIN, KIND.PUDDLE]) KIND_ZONE[k] = ZONE.DOWNTOWN;
+for (const k of [KIND.GAP, KIND.AC_UNIT, KIND.VENT]) KIND_ZONE[k] = ZONE.ROOFTOPS;
+for (const k of [KIND.BARRIER, KIND.FLOOR_SPIKES, KIND.CEIL_PIPE, KIND.CEIL_SPIKES]) KIND_ZONE[k] = ZONE.SUBWAY;
+for (const k of [KIND.BEAM, KIND.BUCKET]) KIND_ZONE[k] = ZONE.CONSTRUCTION;
+for (const k of [KIND.CRATES, KIND.CART, KIND.BIKE, KIND.PIGEONS]) KIND_ZONE[k] = ZONE.MARKET;
+KIND_ZONE[KIND.JUNCTION] = ZONE.CROSSWALK;
+
+const BOY_CENTER = PLAYER_X + 9;
+const PUSH_EVERY = 2.6; // seconds of rolling between cosmetic kick-pushes
+const LAND_TIME = 0.1; // the landing crouch shows this long
+
+export function createRenderer(canvas, stage) {
+  const ctx = canvas.getContext('2d');
+  const night = createNight();
+  const zones = [
+    createDowntown(),
+    createRooftops(),
+    createSubway(),
+    createConstruction(),
+    createMarket(),
+    createCrosswalk(),
+    createParkHill(),
+  ];
+  let scale = 1;
+
+  // The boy's animation
+  let anim = 'ride';
+  let animClock = 0;
+  let rideClock = 0;
+  let pushTimer = PUSH_EVERY;
+  let landTimer = 0;
+  let dashShift = 0; // he lunges forward a little when he dashes
+
+  // Zone changes: the old zone stays on screen behind a gate that scrolls away
+  let shownZone = null;
+  let oldZone = null;
+  let changeScroll = 0;
+
+  // Park Hill's donut, and the donut rolling away once the zone ends
+  let donutSpin = 0;
+  let lastDonutX = -9999;
+  let leavingDonut = null;
+  let crushRoll = 0;
+
+  // Pick the biggest whole-number scale that fits the window (in real device pixels)
+  function fitToScreen() {
+    const dpr = window.devicePixelRatio || 1;
+    scale = Math.max(1, Math.floor(Math.min((innerWidth * dpr) / WIDTH, (innerHeight * dpr) / HEIGHT)));
+    if (canvas.width !== WIDTH * scale) {
+      canvas.width = WIDTH * scale;
+      canvas.height = HEIGHT * scale;
+    }
+    // The page size in CSS pixels, and how big one game pixel is (menus use --px)
+    stage.style.width = (WIDTH * scale) / dpr + 'px';
+    stage.style.height = (HEIGHT * scale) / dpr + 'px';
+    stage.style.setProperty('--px', scale / dpr + 'px');
+    setScale(scale);
+  }
+  window.addEventListener('resize', fitToScreen);
+  fitToScreen();
+
+  function begin() {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+  }
+
+  // Runs `draw` with the context nudged so that whole-pixel art lands on the
+  // nearest screen pixel to (x, y). Returns the whole-pixel x, y to draw at.
+  function atSubpixel(x, y, draw) {
+    const rx = Math.round(x);
+    const ry = Math.round(y);
+    ctx.save();
+    ctx.translate(snap(x) - rx, snap(y) - ry);
+    draw(rx, ry);
+    ctx.restore();
+  }
+
+  function withClip(left, right, draw) {
+    if (right <= left) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, 0, right - left, HEIGHT);
+    ctx.clip();
+    draw();
+    ctx.restore();
+  }
+
+  // ---------- The gate between two zones ----------
+  function drawGate(x, zoneIndex, time) {
+    const zone = ZONES[zoneIndex];
+    const gx = Math.round(x);
+    // Two posts with hazard stripes in the new zone's colour
+    for (const px of [gx - 4, gx + 1]) {
+      rect(ctx, px, 96, 3, GROUND_Y - 94, OUTLINE);
+    }
+    rect(ctx, gx - 3, 97, 1, GROUND_Y - 96, zone.accent);
+    rect(ctx, gx + 2, 97, 1, GROUND_Y - 96, '#ffffff');
+    for (let y = 120; y < GROUND_Y; y += 10) rect(ctx, gx - 3, y, 1, 4, OUTLINE);
+    // The banner with the zone's name, swinging a tiny bit
+    const label = zone.name.toUpperCase();
+    const w = label.length * 8 + 12;
+    const sway = Math.round(Math.sin(time * 3) * 1);
+    const bx = gx - Math.floor(w / 2) + sway;
+    box(ctx, bx, 100, w, 16, { fill: zone.accent, light: '#ffffff', shade: OUTLINE });
+    pixelText(ctx, label, bx + 6, 104, { color: OUTLINE });
+    // Light up the gate's feet
+    rect(ctx, gx - 6, GROUND_Y - 1, 12, 2, OUTLINE);
+  }
+
+  // ---------- The boy ----------
+  function pickAnimation(game, pose, dt, events) {
+    if (events & 4 /* LAND */) landTimer = LAND_TIME;
+    if (events & 128 /* PUSH */) {
+      anim = 'push';
+      animClock = 0;
+    }
+    landTimer = Math.max(0, landTimer - dt);
+    const vyUp = game.vy_up();
+    let next;
+    switch (pose) {
+      case POSE.DUCK: next = 'duck'; break;
+      case POSE.DASH: next = 'dash'; break;
+      case POSE.BRAKE: next = 'brake'; break;
+      case POSE.IDLE: next = 'idle'; break;
+      case POSE.GRAB: next = 'grab'; break;
+      case POSE.JUMP: next = vyUp > 170 ? 'pop' : 'air'; break;
+      case POSE.FALL: next = vyUp > -140 ? 'air' : 'fall'; break;
+      case POSE.PUSH:
+        next = anim === 'push' && animClock < animationLength('push') ? 'push' : 'ride';
+        break;
+      default:
+        if (landTimer > 0) next = 'land';
+        else if (anim === 'push' && animClock < animationLength('push')) next = 'push';
+        else {
+          pushTimer -= dt;
+          if (pushTimer <= 0) {
+            pushTimer = PUSH_EVERY + Math.random();
+            next = 'push';
+            animClock = 0;
+            anim = 'push';
+          } else next = 'ride';
+        }
+    }
+    if (next !== anim) {
+      anim = next;
+      animClock = 0;
+    }
+    animClock += dt;
+    // The wheels roll faster when he's faster
+    rideClock += dt * Math.max(0.2, game.speed() / BASE_SPEED);
+  }
+
+  function drawPlayer(game, view, pose) {
+    if (game.is_dead()) return;
+    // Blinks while Tony's shield keeps him safe
+    if (game.is_safe() && Math.floor(view.time * 16) % 2 === 0) return;
+    const [, , , h] = game.player();
+    const y = view.playerY; // blended between updates
+    const upside = game.upside_down();
+    const clock = anim === 'ride' ? rideClock : animClock;
+    const centerX = BOY_CENTER + dashShift;
+    if (upside) {
+      atSubpixel(centerX, y, (cx, cy) => drawBoy(ctx, anim, clock, cx, cy, { upsideDown: true }));
+      return;
+    }
+    // His shadow on the floor shrinks as he gets higher
+    const footY = y + h;
+    const height = GROUND_Y - footY;
+    if (pose !== POSE.HURT && height < 90 && height > -4) {
+      const shadowW = Math.max(6, 22 - Math.floor(height / 5));
+      rect(ctx, Math.round(centerX - shadowW / 2), GROUND_Y, shadowW, 1, '#00000044');
+    }
+    atSubpixel(centerX, footY, (cx, cy) => drawBoy(ctx, anim, clock, cx, cy));
+  }
+
+  // ---------- A whole frame of the game ----------
+  function drawGame(game, view, dt) {
+    begin();
+    const dead = game.is_dead();
+    const zone = game.zone();
+    const pose = game.pose();
+    const events = view.events;
+    if (!dead) pickAnimation(game, pose, dt, events);
+    dashShift += ((pose === POSE.DASH ? 10 : 0) - dashShift) * Math.min(1, dt * 14);
+
+    // Remember zone changes, to slide the old zone away behind a gate
+    const scroll = view.scroll; // blended between updates
+    if (shownZone === null) shownZone = zone;
+    if (zone !== shownZone) {
+      oldZone = shownZone;
+      shownZone = zone;
+      changeScroll = scroll;
+      if (oldZone === ZONE.PARK_HILL && lastDonutX > -DONUT_SIZE) leavingDonut = { x: lastDonutX };
+    }
+
+    rect(ctx, 0, 0, WIDTH, HEIGHT, '#000000');
+    const camera = view.effects.camera();
+    ctx.save();
+    ctx.translate(camera.x, camera.y);
+
+    // Where the gates are: one behind (the zone we just left), one ahead (the next zone)
+    let gateBehind = oldZone !== null ? BOY_CENTER - (scroll - changeScroll) : -999;
+    if (gateBehind < -40) oldZone = null;
+    const next = game.next_zone();
+    const ahead = game.seconds_to_next_zone() * game.zone_speed();
+    let gateAhead = next !== zone && !dead ? BOY_CENTER + ahead : 999;
+    if (gateAhead > WIDTH + 40) gateAhead = 999;
+
+    // Backdrops: old zone | this zone | next zone
+    const time = view.time;
+    if (oldZone !== null) withClip(0, snap(gateBehind), () => zones[oldZone].drawBack(ctx, scroll, time));
+    withClip(oldZone !== null ? snap(gateBehind) : 0, gateAhead < 999 ? snap(gateAhead) : WIDTH, () =>
+      zones[zone].drawBack(ctx, scroll, time),
+    );
+    if (gateAhead < 999) withClip(snap(gateAhead), WIDTH, () => zones[next].drawBack(ctx, scroll, time));
+
+    // Obstacles (blended to where they were between updates)
+    const list = game.obstacles();
+    const shift = view.obstacleShift;
+    const parts = [];
+    for (let i = 0; i < list.length; i += OBSTACLE_STRIDE) {
+      const x = list[i] + shift;
+      const w = list[i + 2];
+      if (x > WIDTH + 80 || x + w < -80) continue;
+      const kind = list[i + 4];
+      parts.push({ art: zones[KIND_ZONE[kind]], o: { kind, x, y: list[i + 1], w, h: list[i + 3], a: list[i + 5], b: list[i + 6] } });
+    }
+    const drawPart = (art, o, front) => {
+      const fn = front ? art.drawObstacleFront : art.drawObstacle;
+      if (!fn) return;
+      atSubpixel(o.x, o.y, (x, y) => fn.call(art, ctx, { ...o, x, y }, time));
+    };
+    for (const { art, o } of parts) drawPart(art, o, false);
+
+    // Park Hill: the giant donut behind him
+    const donutArt = zones[ZONE.PARK_HILL];
+    const donutX = view.donutX;
+    if (zone === ZONE.PARK_HILL) {
+      // Once it catches him, it keeps rolling right over him
+      if (dead) crushRoll += dt * 150;
+      else crushRoll = 0;
+      lastDonutX = donutX + crushRoll;
+      donutSpin = (scroll + lastDonutX) / (DONUT_SIZE / 2);
+      atSubpixel(lastDonutX, GROUND_Y - DONUT_SIZE, (x, y) => donutArt.drawDonut(ctx, x, y, time, donutSpin));
+    } else {
+      lastDonutX = -9999;
+    }
+    if (leavingDonut) {
+      leavingDonut.x -= dt * (game.speed() + 60);
+      const d = leavingDonut;
+      atSubpixel(d.x, GROUND_Y - DONUT_SIZE, (x, y) => donutArt.drawDonut(ctx, x, y, time, (scroll + d.x) / 26));
+      if (d.x < -DONUT_SIZE - 4) leavingDonut = null;
+    }
+
+    view.effects.drawBehind(ctx, game);
+    drawPlayer(game, view, pose);
+    view.effects.drawWorld(ctx, game);
+
+    for (const { art, o } of parts) drawPart(art, o, true);
+
+    // Foregrounds (in front of the boy), split by the same gates
+    if (oldZone !== null) withClip(0, snap(gateBehind), () => zones[oldZone].drawFront?.(ctx, scroll, time));
+    withClip(oldZone !== null ? snap(gateBehind) : 0, gateAhead < 999 ? snap(gateAhead) : WIDTH, () =>
+      zones[zone].drawFront?.(ctx, scroll, time),
+    );
+    if (gateAhead < 999) withClip(snap(gateAhead), WIDTH, () => zones[next].drawFront?.(ctx, scroll, time));
+
+    if (oldZone !== null) atSubpixel(gateBehind, 0, (x) => drawGate(x, zone, time));
+    if (gateAhead < 999) atSubpixel(gateAhead, 0, (x) => drawGate(x, next, time));
+    ctx.restore();
+
+    drawHud(ctx, game, view);
+    drawZoneSign(ctx, game, view);
+    view.effects.drawOverlay(ctx, WIDTH, HEIGHT);
+  }
+
+  // The title screen: the boy chilling on his board on a rooftop at night
+  function drawTitle(view) {
+    begin();
+    night.draw(ctx, view.time);
+    drawBoy(ctx, 'idle', view.time, 120, ROOF_Y);
+
+    pixelText(ctx, 'ONE BUTTON', 240, 26, { size: 16, align: 'center', color: '#ffffff', outline: OUTLINE, shadow: '#ff5fa2' });
+    pixelText(ctx, 'CHAOS', 240, 48, { size: 32, align: 'center', color: '#ffb38a', outline: OUTLINE, shadow: '#ff5fa2' });
+    if (Math.floor(view.time * 2) % 2 === 0) {
+      pixelText(ctx, 'PRESS ANYTHING TO START', 240, 96, { align: 'center', color: '#ffd166', outline: OUTLINE });
+    }
+    if (boyIsMissing()) {
+      pixelText(ctx, 'ADD assets/sprites/crew.png', 240, 6, { align: 'center', color: '#ff8a80', outline: OUTLINE });
+    }
+  }
+
+  function reset() {
+    shownZone = null;
+    oldZone = null;
+    leavingDonut = null;
+    anim = 'ride';
+    animClock = 0;
+    landTimer = 0;
+    dashShift = 0;
+    pushTimer = 1.2;
+  }
+
+  // Market: the colours of the bits that fly when something is smashed
+  function debrisFor(kind) {
+    return zones[ZONE.MARKET].debris?.[kind] || ['#c9a36b', '#8a6a3f', '#ffd166'];
+  }
+
+  return { drawGame, drawTitle, reset, debrisFor };
+}

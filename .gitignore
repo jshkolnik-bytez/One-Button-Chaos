@@ -1,0 +1,11 @@
+# Installed packages (npm install recreates these)
+node_modules/
+# Built game (npm run build recreates this)
+dist/
+# Rust build output (Phase 3)
+core/target/
+core/pkg/
+.DS_Store
+
+# Screenshots from automated browser tests
+.playwright-mcp/

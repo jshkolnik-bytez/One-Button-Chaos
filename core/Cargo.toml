@@ -1,0 +1,23 @@
+# The Rust "game brain" of One Button Chaos.
+# It is compiled to WebAssembly with: wasm-pack build core --target web
+#
+# (The folder is called core/, but the crate can't be called "core",
+# because Rust already has a built-in library with that name.)
+
+[package]
+name = "chaos-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# cdylib = the WebAssembly file for the browser, rlib = lets `cargo test` use it
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Lets JavaScript call our Rust functions
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s" # a smaller .wasm download (still far faster than we need)
+lto = true

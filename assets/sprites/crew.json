@@ -1,0 +1,261 @@
+{
+  "frameWidth": 48,
+  "frameHeight": 48,
+  "crew": [
+    "jay",
+    "maya",
+    "rosa",
+    "kai",
+    "zeke",
+    "gloria",
+    "tony",
+    "nova"
+  ],
+  "boards": [
+    "classic",
+    "pop",
+    "cruiser",
+    "rocket",
+    "hover",
+    "gold"
+  ],
+  "frames": {
+    "ride_0": {
+      "x": 0,
+      "w": 48,
+      "h": 48
+    },
+    "ride_1": {
+      "x": 48,
+      "w": 48,
+      "h": 48
+    },
+    "ride_2": {
+      "x": 96,
+      "w": 48,
+      "h": 48
+    },
+    "ride_3": {
+      "x": 144,
+      "w": 48,
+      "h": 48
+    },
+    "push_0": {
+      "x": 192,
+      "w": 48,
+      "h": 48
+    },
+    "push_1": {
+      "x": 240,
+      "w": 48,
+      "h": 48
+    },
+    "push_2": {
+      "x": 288,
+      "w": 48,
+      "h": 48
+    },
+    "push_3": {
+      "x": 336,
+      "w": 48,
+      "h": 48
+    },
+    "push_4": {
+      "x": 384,
+      "w": 48,
+      "h": 48
+    },
+    "push_5": {
+      "x": 432,
+      "w": 48,
+      "h": 48
+    },
+    "idle_0": {
+      "x": 480,
+      "w": 48,
+      "h": 48
+    },
+    "idle_1": {
+      "x": 528,
+      "w": 48,
+      "h": 48
+    },
+    "crouch": {
+      "x": 576,
+      "w": 48,
+      "h": 48
+    },
+    "pop": {
+      "x": 624,
+      "w": 48,
+      "h": 48
+    },
+    "air": {
+      "x": 672,
+      "w": 48,
+      "h": 48
+    },
+    "grab": {
+      "x": 720,
+      "w": 48,
+      "h": 48
+    },
+    "fall": {
+      "x": 768,
+      "w": 48,
+      "h": 48
+    },
+    "land": {
+      "x": 816,
+      "w": 48,
+      "h": 48
+    },
+    "duck_0": {
+      "x": 864,
+      "w": 48,
+      "h": 48
+    },
+    "duck_1": {
+      "x": 912,
+      "w": 48,
+      "h": 48
+    },
+    "dash_0": {
+      "x": 960,
+      "w": 48,
+      "h": 48
+    },
+    "dash_1": {
+      "x": 1008,
+      "w": 48,
+      "h": 48
+    },
+    "brake": {
+      "x": 1056,
+      "w": 48,
+      "h": 48
+    },
+    "hurt": {
+      "x": 1104,
+      "w": 48,
+      "h": 48
+    },
+    "board": {
+      "x": 1152,
+      "w": 48,
+      "h": 48
+    }
+  },
+  "animations": {
+    "ride": {
+      "frames": [
+        "ride_0",
+        "ride_1",
+        "ride_2",
+        "ride_3"
+      ],
+      "fps": 10,
+      "loop": true
+    },
+    "push": {
+      "frames": [
+        "push_0",
+        "push_1",
+        "push_2",
+        "push_3",
+        "push_4",
+        "push_5"
+      ],
+      "fps": 14,
+      "loop": false
+    },
+    "idle": {
+      "frames": [
+        "idle_0",
+        "idle_1"
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "crouch": {
+      "frames": [
+        "crouch"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "pop": {
+      "frames": [
+        "pop"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "air": {
+      "frames": [
+        "air"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "grab": {
+      "frames": [
+        "grab"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "fall": {
+      "frames": [
+        "fall"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "land": {
+      "frames": [
+        "land"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "duck": {
+      "frames": [
+        "duck_0",
+        "duck_1"
+      ],
+      "fps": 6,
+      "loop": true
+    },
+    "dash": {
+      "frames": [
+        "dash_0",
+        "dash_1"
+      ],
+      "fps": 16,
+      "loop": true
+    },
+    "brake": {
+      "frames": [
+        "brake"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "hurt": {
+      "frames": [
+        "hurt"
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "board": {
+      "frames": [
+        "board"
+      ],
+      "fps": 1,
+      "loop": false
+    }
+  },
+  "notes": "crew.png: one row per character (no board). boards.png: one row per board, same columns. Draw the board frame first, then the character frame on top. Wheels touch row 45 (ground line 46)."
+}
