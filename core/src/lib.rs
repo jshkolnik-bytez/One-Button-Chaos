@@ -69,6 +69,9 @@ pub struct Game {
     pub(crate) board: u8,                   // ...and on which board
     pub(crate) shield: bool,                // Tony: can still shrug off one crash
     pub(crate) safe_ticks: u32,             // ...and is safe for this many more ticks after using it
+    pub(crate) tutorial: bool,              // tutorial: no crashing, no zone clock
+    pub(crate) bump_ticks: u32,             // ...an "OOPS!" at most this often
+    pub(crate) last_cleared: u8,            // ...and what he last got past cleanly
 }
 
 #[wasm_bindgen]
@@ -105,6 +108,9 @@ impl Game {
             board: 0,
             shield: false,
             safe_ticks: 0,
+            tutorial: false,
+            bump_ticks: 0,
+            last_cleared: 0,
         }
     }
 
@@ -135,6 +141,9 @@ impl Game {
         if self.safe_ticks > 0 {
             self.safe_ticks -= 1;
         }
+        if self.bump_ticks > 0 {
+            self.bump_ticks -= 1;
+        }
 
         // Braking (Crosswalk) or rolling back up to speed
         let target = target_speed(self);
@@ -147,7 +156,7 @@ impl Game {
 
         // The zone clock. At the Crosswalk it only runs while you roll, so
         // waiting forever doesn't skip the zone.
-        if self.zone != Zone::Crosswalk || rolling {
+        if !self.tutorial && (self.zone != Zone::Crosswalk || rolling) {
             self.zone_tick += 1;
             if self.zone_tick == ZONE_TICKS {
                 self.next_zone_starts();
@@ -167,8 +176,13 @@ impl Game {
         }
         if let Some(i) = find_crash(self) {
             let kind = self.obstacles[i].kind as u8;
+            if self.tutorial {
+                self.obstacles[i].bumped = true; // he passes through it, and it doesn't count
+            }
             die(self, kind);
-            return;
+            if self.dead {
+                return;
+            }
         }
 
         // 10 points per second of rolling = 1 point every 6 ticks
@@ -196,6 +210,31 @@ impl Game {
     /// Tony just used his shield: he blinks while he's safe
     pub fn is_safe(&self) -> bool {
         self.safe_ticks > 0
+    }
+
+    /// Tutorial mode: nothing can end the run (crashes are just "OOPS!"), the
+    /// zones only change when the tutorial says so, and the speed stays easy
+    pub fn set_tutorial(&mut self, on: bool) {
+        self.tutorial = on;
+    }
+
+    /// Tutorial: switch to a zone right now (0-6), at the starting speed
+    pub fn tutorial_zone(&mut self, zone: u8) {
+        if let Some(&z) = Zone::ALL.get(zone as usize) {
+            let next = (self.zone_index + 1) % self.order.len();
+            self.order[next] = z;
+            self.next_zone_starts();
+            self.speed_mult = 1.0;
+            self.speed = BASE_SPEED;
+            self.points = 0;
+            self.zone_changes = 0;
+            self.spawn_cursor = BASE_SPEED * 0.6;
+        }
+    }
+
+    /// Tutorial: what he last got past cleanly (a CLEAR event says when)
+    pub fn last_cleared(&self) -> u8 {
+        self.last_cleared
     }
 
     /// Practice: jump straight to a zone (0-6), keeping the run going from there
@@ -282,6 +321,33 @@ impl Game {
         flipping && p.y + p.h / 2.0 < (CEIL_Y + GROUND_Y) / 2.0
     }
 
+    /// Highway: where he is between the lanes (0 = front lane, 1 = back lane)
+    pub fn lane_pos(&self) -> f32 {
+        self.player.lane_pos
+    }
+
+    /// Seaside Pier: is he up in the air with the kite?
+    pub fn flying(&self) -> bool {
+        self.zone == Zone::Pier && !self.player.grounded && !self.dead
+    }
+
+    /// Can he do a trick right now? Only in the air after an ollie
+    /// (Downtown and Rooftops), and not once he's fallen into a gap.
+    pub fn can_trick(&self) -> bool {
+        let p = &self.player;
+        !self.dead && !p.grounded && !p.in_gap && matches!(self.zone, Zone::Downtown | Zone::Rooftops)
+    }
+
+    /// A trick landed in mid-air (the keys are checked in tricks.js).
+    /// Adds its bonus points and returns true, or false if it's too late.
+    pub fn trick(&mut self, points: u32) -> bool {
+        if !self.can_trick() {
+            return false;
+        }
+        self.points += points.min(MAX_TRICK_POINTS);
+        true
+    }
+
     /// Market: is he dashing right now?
     pub fn dashing(&self) -> bool {
         self.player.dash_ticks > 0
@@ -310,7 +376,12 @@ impl Game {
             } else {
                 (self.tick as f32 - o.t0 as f32) / (o.t1 - o.t0) as f32
             };
-            out.extend_from_slice(&[o.x, o.y, o.w, o.h, o.kind as u8 as f32, a, o.paint as f32]);
+            if o.kind.in_lane() {
+                // Highway: a = which picture, b = which lane
+                out.extend_from_slice(&[o.x, o.y, o.w, o.h, o.kind as u8 as f32, o.paint as f32, o.lane as f32]);
+            } else {
+                out.extend_from_slice(&[o.x, o.y, o.w, o.h, o.kind as u8 as f32, a, o.paint as f32]);
+            }
         }
         out
     }

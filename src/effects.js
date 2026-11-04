@@ -113,6 +113,16 @@ export function createEffects({ debrisFor = () => ['#c9a36b', '#8a6a3f'] } = {})
         bounce = 1;
       }
       if (events & EVENT.PUSH) spray(f.x - 14, f.y - 1, 2, { speed: 30, drift });
+      if (events & EVENT.SWITCH) {
+        spray(f.x - 8, f.y - 1, 4, { speed: 50, drift });
+        spray(f.x - 10, f.y - 1, 2, { speed: 40, drift, colors: SPARKS, size: 1, life: 0.2 });
+      }
+      if (events & EVENT.SURGE) {
+        // The donut gets angry: a rumble and a warning
+        shake = Math.max(shake, 3);
+        popups.push({ text: 'ANGRY DONUT!', x: 20, y: 150, age: 0, color: '#ff6b6b' });
+        spray(30, 230, 8, { speed: 90, drift: -40 });
+      }
       if (events & EVENT.SMASH) {
         const [sx, sy, kind] = game.smash();
         spray(sx, sy, 18, { speed: 220, drift: 40, colors: debrisFor(kind), size: 2, life: 0.7, gravity: 600 });
@@ -192,6 +202,14 @@ export function createEffects({ debrisFor = () => ['#c9a36b', '#8a6a3f'] } = {})
 
     isTumbling: () => tumble !== null,
 
+    // Sparkles bursting from the board when a trick lands
+    trick(game, combo) {
+      const f = feet(game);
+      const colors = combo > 1 ? ['#ffffff', '#7ff0e4', '#ff5fa2', '#ffd166'] : ['#ffffff', '#ffd166', '#ff8a3d'];
+      spray(f.x, f.y - 2, 10 + combo * 4, { speed: 130, colors, size: 2, life: 0.45, up: 1 });
+      spray(f.x, f.y - 2, 6, { speed: 90, colors, size: 1, life: 0.35 });
+    },
+
     // A "+5" coin pop-up under the score
     coins(amount) {
       popups.push({ text: '+' + amount, x: 58, y: 50, age: 0, coin: true });
@@ -225,7 +243,7 @@ export function createEffects({ debrisFor = () => ['#c9a36b', '#8a6a3f'] } = {})
         if (p.age > 0.9 && Math.floor(p.age * 20) % 2) continue; // blink out
         const y = p.y - Math.floor(p.age * 10);
         if (p.coin) drawCoin(ctx, p.x - 11, y - 1);
-        pixelText(ctx, p.text, p.x, y, { color: '#ffd166', outline: OUTLINE });
+        pixelText(ctx, p.text, p.x, y, { color: p.color || '#ffd166', outline: OUTLINE });
       }
       if (flash > 0) {
         ctx.globalAlpha = flash > 0.7 ? 1 : flash;

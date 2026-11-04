@@ -6,7 +6,7 @@
 // SCREEN pixel (see art/strip.js), and positions are blended between the
 // game's 60 updates a second, so motion looks smooth on any screen.
 import {
-  WIDTH, HEIGHT, GROUND_Y, PLAYER_X, POSE, ZONE, ZONES, KIND, OBSTACLE_STRIDE, DONUT_SIZE, BASE_SPEED,
+  WIDTH, HEIGHT, GROUND_Y, PLAYER_X, POSE, ZONE, ZONES, KIND, OBSTACLE_STRIDE, DONUT_SIZE, BASE_SPEED, LANE_GAP,
 } from './world.js';
 import { rect, box, pixelText, OUTLINE } from './art/pixel.js';
 import { setScale, snap } from './art/strip.js';
@@ -20,6 +20,8 @@ import { createConstruction } from './art/zones/construction.js';
 import { createMarket } from './art/zones/market.js';
 import { createCrosswalk } from './art/zones/crosswalk.js';
 import { createParkHill } from './art/zones/park-hill.js';
+import { createHighway } from './art/zones/highway.js';
+import { createPier, drawKite } from './art/zones/pier.js';
 
 // Which zone each obstacle kind belongs to (so the right art draws it)
 const KIND_ZONE = [];
@@ -29,8 +31,12 @@ for (const k of [KIND.BARRIER, KIND.FLOOR_SPIKES, KIND.CEIL_PIPE, KIND.CEIL_SPIK
 for (const k of [KIND.BEAM, KIND.BUCKET]) KIND_ZONE[k] = ZONE.CONSTRUCTION;
 for (const k of [KIND.CRATES, KIND.CART, KIND.BIKE, KIND.PIGEONS]) KIND_ZONE[k] = ZONE.MARKET;
 KIND_ZONE[KIND.JUNCTION] = ZONE.CROSSWALK;
+for (const k of [KIND.STALLED_CAR, KIND.ROADWORK, KIND.POTHOLE]) KIND_ZONE[k] = ZONE.HIGHWAY;
+for (const k of [KIND.WATER_GAP, KIND.GULLS]) KIND_ZONE[k] = ZONE.PIER;
+const IN_LANE = new Set([KIND.STALLED_CAR, KIND.ROADWORK, KIND.POTHOLE]);
 
 const BOY_CENTER = PLAYER_X + 9;
+const LOGO_X = 140; // the title screen's left column (the menu is on the right)
 const PUSH_EVERY = 2.6; // seconds of rolling between cosmetic kick-pushes
 const LAND_TIME = 0.1; // the landing crouch shows this long
 
@@ -45,6 +51,8 @@ export function createRenderer(canvas, stage) {
     createMarket(),
     createCrosswalk(),
     createParkHill(),
+    createHighway(),
+    createPier(),
   ];
   let scale = 1;
 
@@ -66,6 +74,9 @@ export function createRenderer(canvas, stage) {
   let lastDonutX = -9999;
   let leavingDonut = null;
   let crushRoll = 0;
+
+  // Seaside Pier: the kite floats after his hand, a little behind and above
+  let kite = null;
 
   // Pick the biggest whole-number scale that fits the window (in real device pixels)
   function fitToScreen() {
@@ -177,6 +188,7 @@ export function createRenderer(canvas, stage) {
 
   function drawPlayer(game, view, pose) {
     if (game.is_dead()) return;
+    const trick = view.tricks?.boardTrick() || null;
     // Blinks while Tony's shield keeps him safe
     if (game.is_safe() && Math.floor(view.time * 16) % 2 === 0) return;
     const [, , , h] = game.player();
@@ -189,13 +201,39 @@ export function createRenderer(canvas, stage) {
       return;
     }
     // His shadow on the floor shrinks as he gets higher
+    // (on the Highway, the floor is whichever lane he's in)
     const footY = y + h;
-    const height = GROUND_Y - footY;
+    const floor = game.zone() === ZONE.HIGHWAY ? GROUND_Y - LANE_GAP * game.lane_pos() : GROUND_Y;
+    const height = floor - footY;
     if (pose !== POSE.HURT && height < 90 && height > -4) {
       const shadowW = Math.max(6, 22 - Math.floor(height / 5));
-      rect(ctx, Math.round(centerX - shadowW / 2), GROUND_Y, shadowW, 1, '#00000044');
+      rect(ctx, Math.round(centerX - shadowW / 2), Math.round(floor), shadowW, 1, '#00000044');
     }
-    atSubpixel(centerX, footY, (cx, cy) => drawBoy(ctx, anim, clock, cx, cy));
+    atSubpixel(centerX, footY, (cx, cy) => drawBoy(ctx, anim, clock, cx, cy, { trick }));
+  }
+
+  // Seaside Pier: his kite on its string. It trails behind him and climbs
+  // when you hold (he's being pulled up).
+  function drawKiteFor(game, view, dt) {
+    if (game.zone() !== ZONE.PIER && !kite) return;
+    const hx = BOY_CENTER + 5;
+    const hy = view.playerY + 6;
+    const pulling = game.zone() === ZONE.PIER && game.vy_up() > 40;
+    const tx = hx + 46 + Math.sin(view.time * 1.3) * 6;
+    const ty = Math.max(16, hy - (pulling ? 70 : 56) + Math.sin(view.time * 2.1) * 4);
+    if (!kite) kite = { x: tx, y: ty - 30 };
+    const follow = Math.min(1, dt * 5);
+    kite.x += (tx - kite.x) * follow;
+    kite.y += (ty - kite.y) * follow;
+    if (game.zone() !== ZONE.PIER || game.is_dead()) {
+      // Let go of it: it floats away
+      kite.y -= dt * 60;
+      kite.x += dt * 40;
+      if (kite.y < -40) kite = null;
+      if (kite) drawKite(ctx, kite.x - 30, kite.y + 60, kite.x, kite.y, view.time);
+      return;
+    }
+    drawKite(ctx, hx, hy, kite.x, kite.y, view.time);
   }
 
   // ---------- A whole frame of the game ----------
@@ -243,19 +281,22 @@ export function createRenderer(canvas, stage) {
     const list = game.obstacles();
     const shift = view.obstacleShift;
     const parts = [];
+    // Highway: things in the front lane go in front of him when he's in the back lane
+    const backLane = zone === ZONE.HIGHWAY && game.lane_pos() >= 0.5;
     for (let i = 0; i < list.length; i += OBSTACLE_STRIDE) {
       const x = list[i] + shift;
       const w = list[i + 2];
       if (x > WIDTH + 80 || x + w < -80) continue;
       const kind = list[i + 4];
-      parts.push({ art: zones[KIND_ZONE[kind]], o: { kind, x, y: list[i + 1], w, h: list[i + 3], a: list[i + 5], b: list[i + 6] } });
+      const o = { kind, x, y: list[i + 1], w, h: list[i + 3], a: list[i + 5], b: list[i + 6] };
+      parts.push({ art: zones[KIND_ZONE[kind]], o, front: IN_LANE.has(kind) && o.b === 0 && backLane });
     }
     const drawPart = (art, o, front) => {
       const fn = front ? art.drawObstacleFront : art.drawObstacle;
       if (!fn) return;
       atSubpixel(o.x, o.y, (x, y) => fn.call(art, ctx, { ...o, x, y }, time));
     };
-    for (const { art, o } of parts) drawPart(art, o, false);
+    for (const { art, o, front } of parts) if (!front) drawPart(art, o, false);
 
     // Park Hill: the giant donut behind him
     const donutArt = zones[ZONE.PARK_HILL];
@@ -279,6 +320,8 @@ export function createRenderer(canvas, stage) {
 
     view.effects.drawBehind(ctx, game);
     drawPlayer(game, view, pose);
+    drawKiteFor(game, view, dt);
+    for (const { art, o, front } of parts) if (front) drawPart(art, o, false);
     view.effects.drawWorld(ctx, game);
 
     for (const { art, o } of parts) drawPart(art, o, true);
@@ -292,23 +335,38 @@ export function createRenderer(canvas, stage) {
 
     if (oldZone !== null) atSubpixel(gateBehind, 0, (x) => drawGate(x, zone, time));
     if (gateAhead < 999) atSubpixel(gateAhead, 0, (x) => drawGate(x, next, time));
+    // Trick keys above his head, and trick names popping up
+    if (view.tricks) view.tricks.draw(ctx, game, BOY_CENTER, Math.round(view.playerY) - 4, time);
     ctx.restore();
 
-    drawHud(ctx, game, view);
-    drawZoneSign(ctx, game, view);
-    view.effects.drawOverlay(ctx, WIDTH, HEIGHT);
+    if (view.tutorial) {
+      view.effects.drawOverlay(ctx, WIDTH, HEIGHT);
+      view.tutorial.draw(ctx, game, view);
+    } else {
+      drawHud(ctx, game, view);
+      drawZoneSign(ctx, game, view);
+      view.effects.drawOverlay(ctx, WIDTH, HEIGHT);
+    }
   }
 
-  // The title screen: the boy chilling on his board on a rooftop at night
+  // The title screen: your skater chilling on a rooftop at night, the logo
+  // above, and the menu (HTML) on the right
   function drawTitle(view) {
     begin();
     night.draw(ctx, view.time);
-    drawBoy(ctx, 'idle', view.time, 120, ROOF_Y);
+    drawBoy(ctx, 'idle', view.time, LOGO_X, ROOF_Y);
 
-    pixelText(ctx, 'ONE BUTTON', 240, 26, { size: 16, align: 'center', color: '#ffffff', outline: OUTLINE, shadow: '#ff5fa2' });
-    pixelText(ctx, 'CHAOS', 240, 48, { size: 32, align: 'center', color: '#ffb38a', outline: OUTLINE, shadow: '#ff5fa2' });
+    // The logo bobs gently, letter by letter
+    pixelText(ctx, 'ONE BUTTON', LOGO_X, 22, { size: 16, align: 'center', color: '#ffffff', outline: OUTLINE, shadow: '#ff5fa2' });
+    const word = 'CHAOS';
+    const size = 32;
+    const left = LOGO_X - (word.length * size) / 2;
+    [...word].forEach((letter, i) => {
+      const bob = Math.round(Math.sin(view.time * 3 - i * 0.7) * 2);
+      pixelText(ctx, letter, left + i * size, 44 + bob, { size, color: '#ffb38a', outline: OUTLINE, shadow: '#ff5fa2' });
+    });
     if (Math.floor(view.time * 2) % 2 === 0) {
-      pixelText(ctx, 'PRESS ANYTHING TO START', 240, 96, { align: 'center', color: '#ffd166', outline: OUTLINE });
+      pixelText(ctx, 'PRESS SPACE TO PLAY', LOGO_X, 90, { align: 'center', color: '#ffd166', outline: OUTLINE });
     }
     if (boyIsMissing()) {
       pixelText(ctx, 'ADD assets/sprites/crew.png', 240, 6, { align: 'center', color: '#ff8a80', outline: OUTLINE });
@@ -319,6 +377,7 @@ export function createRenderer(canvas, stage) {
     shownZone = null;
     oldZone = null;
     leavingDonut = null;
+    kite = null;
     anim = 'ride';
     animClock = 0;
     landTimer = 0;

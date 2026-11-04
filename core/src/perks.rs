@@ -67,7 +67,7 @@ impl Game {
 
     pub(crate) fn donut_catch_up(&self) -> f32 {
         let slower = if self.character == GLORIA { 0.7 } else { 1.0 };
-        DONUT_APPROACH * self.speed_mult.sqrt() * slower
+        DONUT_APPROACH * self.speed_mult.powf(0.35) * slower
     }
 
     pub(crate) fn donut_push(&self) -> f32 {

@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "wasm": "wasm-pack build core --target web",
+    "wasm": "wasm-pack build core --target web && node -e \"require('fs').writeFileSync('core/pkg/.gitignore', '# Empty on purpose: GitHub Pages needs these files, so they are uploaded too.\\\\n')\"",
     "dev": "npm run wasm && vite",
     "build": "npm run wasm && vite build",
     "preview": "vite preview",
-    "test": "cargo test --release --manifest-path core/Cargo.toml"
+    "test": "cargo test --release --manifest-path core/Cargo.toml",
+    "deploy": "vite build && npx --yes gh-pages@6.3.0 --dist dist --nojekyll"
   },
   "devDependencies": {
     "vite": "^8.3.4"

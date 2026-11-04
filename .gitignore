@@ -2,9 +2,8 @@
 node_modules/
 # Built game (npm run build recreates this)
 dist/
-# Rust build output (Phase 3)
+# Rust build output (core/pkg/ IS uploaded: GitHub Pages needs the compiled game)
 core/target/
-core/pkg/
 .DS_Store
 
 # Screenshots from automated browser tests

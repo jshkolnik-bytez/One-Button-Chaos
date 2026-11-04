@@ -36,6 +36,11 @@ const KIND_MESSAGES = {
   [KIND.BIKE]: 'Parked bikes do not move. Neither do you now.',
   [KIND.PIGEONS]: 'Taken down by pigeons. Legendary.',
   [KIND.JUNCTION]: 'Look both ways next time!',
+  [KIND.STALLED_CAR]: 'Rear-ended a broken-down car. It was having a bad day too.',
+  [KIND.ROADWORK]: 'Roadworks ahead. Should have read the sign.',
+  [KIND.POTHOLE]: 'Swallowed by a pothole.',
+  [KIND.WATER_GAP]: 'SPLASH! The sea says hi.',
+  [KIND.GULLS]: 'The seagulls wanted your chips.',
   18: 'Eaten by a donut. Ironic.',
 };
 
@@ -68,13 +73,22 @@ async function copyText(text) {
   }
 }
 
-export function createUI({ onChooseMode, onMenu, onToggleMute, onUiSound, onBuy, onWear }) {
+export function createUI({ onChooseMode, onMenu, onToggleMute, onUiSound, onBuy, onWear, onTutorial, onSkipTutorial }) {
   const screens = [$('title-screen'), $('pause-screen'), $('gameover-screen'), $('more-games'), $('shop')];
   let shareText = '';
 
   // Every "coins" number on screen shows your total
   function showCoins() {
     for (const el of document.querySelectorAll('.coin-count')) el.textContent = storage.coins();
+  }
+
+  // The title screen's nameplate: who you skate as, their power, which board
+  function showLoadout() {
+    const crew = CREW[crewIndex(storage.chosen('crew'))];
+    const board = BOARDS[boardIndex(storage.chosen('boards'))];
+    $('loadout-name').textContent = crew.name;
+    $('loadout-power').textContent = crew.power;
+    $('loadout-board').textContent = 'ON ' + board.name;
   }
 
   // ---------- The shop: CREW and BOARDS ----------
@@ -183,12 +197,16 @@ export function createUI({ onChooseMode, onMenu, onToggleMute, onUiSound, onBuy,
     onUiSound();
     $('shop').hidden = true;
     showCoins();
+    showLoadout();
   });
 
   function hideAll() {
     for (const screen of screens) screen.hidden = true;
+    $('tutorial-bar').hidden = true;
   }
 
+  $('play-tutorial').addEventListener('click', () => onTutorial());
+  $('skip-tutorial').addEventListener('click', () => onSkipTutorial());
   $('play-daily').addEventListener('click', () => onChooseMode('daily'));
   $('play-free').addEventListener('click', () => onChooseMode('free'));
   $('menu-button').addEventListener('click', () => onMenu());
@@ -235,7 +253,13 @@ export function createUI({ onChooseMode, onMenu, onToggleMute, onUiSound, onBuy,
       $('best-score').textContent = scoreText(best);
       $('daily-best').textContent = scoreText(dailyBest);
       showCoins();
+      showLoadout();
       $('title-screen').hidden = false;
+    },
+
+    showTutorialBar() {
+      hideAll();
+      $('tutorial-bar').hidden = false;
     },
 
     showPause() {

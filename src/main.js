@@ -10,6 +10,8 @@ import { unlockAudio, playEvents, setMuted, sound } from './audio.js';
 import { ZONES, EVENT } from './world.js';
 import * as storage from './storage.js';
 import { todaySeed, dayLabel, randomSeed } from './daily.js';
+import { createTutorial } from './tutorial.js';
+import { createTricks } from './tricks.js';
 
 const STEP_MS = 1000 / 60; // the game updates exactly 60 times per second
 const CRASH_MS = 700; // after crashing, watch him tumble before the game over panel
@@ -22,7 +24,23 @@ const effects = createEffects({ debrisFor: (kind) => renderer?.debrisFor(kind) }
 
 let engine = null;
 let game = null;
-let screen = 'loading'; // 'title', 'playing', 'paused', 'crashed' or 'gameover'
+let screen = 'loading'; // 'title', 'tutorial', 'playing', 'paused', 'crashed' or 'gameover'
+let pausedFrom = 'playing'; // which screen to go back to after a pause
+const tutorial = createTutorial();
+const COINS_PER_TRICK = 1;
+// Tricks in mid-air: bonus points (and a coin), sparkles and a sound
+const tricks = createTricks({
+  onTrick(trick, points, combo) {
+    sound.trick(combo);
+    effects.trick(game, combo);
+    if (screen === 'tutorial') tutorial.trickDone();
+    if (screen === 'playing') {
+      const earned = Math.round(COINS_PER_TRICK * coinMultiplier(loadout.crew, loadout.board));
+      runCoins += earned;
+      storage.addCoins(earned);
+    }
+  },
+});
 let mode = storage.lastMode(); // 'daily' or 'free'
 let runDay = todaySeed(); // the date the current run started on
 let best = storage.bestScore();
@@ -50,6 +68,8 @@ const ui = createUI({
     useLoadout();
     sound.click();
   },
+  onTutorial: () => startTutorial(),
+  onSkipTutorial: () => skipTutorial(),
 });
 setMuted(muted);
 ui.setMuteLabels(muted);
@@ -74,12 +94,40 @@ function showTitle() {
   ui.showTitle({ best: storage.bestScore(), dailyBest: storage.dailyBest(day), day: dayLabel(day) });
 }
 
+// The tutorial: a safe practice game that walks through every zone
+function startTutorial() {
+  game = newGame(randomSeed());
+  game.set_tutorial(true);
+  tutorial.start({ keyboard: tricks.hasKeyboard() });
+  tricks.reset();
+  effects.reset();
+  renderer.reset();
+  remember();
+  timeBank = 0;
+  screen = 'tutorial';
+  ui.showTutorialBar();
+}
+
+// Finishing or skipping it goes straight into a real run
+function skipTutorial() {
+  if (screen !== 'tutorial' && !(screen === 'paused' && pausedFrom === 'tutorial')) return;
+  storage.setTutorialSeen();
+  sound.click();
+  startRun();
+}
+
 function startRun(newMode = mode) {
   mode = newMode;
+  // Your very first run starts with the tutorial (you can skip it)
+  if (!storage.tutorialSeen()) {
+    startTutorial();
+    return;
+  }
   storage.setLastMode(mode);
   runDay = todaySeed();
   best = storage.bestScore();
   game = newGame(mode === 'daily' ? runDay : randomSeed());
+  tricks.reset();
   effects.reset();
   renderer.reset();
   remember();
@@ -111,16 +159,22 @@ function showGameOver() {
 
 // Switching tabs or windows pauses the run, so you never crash while away
 function pause() {
-  if (screen !== 'playing') return;
+  if (screen !== 'playing' && screen !== 'tutorial') return;
+  pausedFrom = screen;
   screen = 'paused';
   ui.showPause();
 }
 
 function resume() {
-  screen = 'playing';
+  screen = pausedFrom;
   timeBank = 0;
-  ui.hideAll();
+  if (screen === 'tutorial') ui.showTutorialBar();
+  else ui.hideAll();
 }
+
+// Any key at all means this player has a keyboard (so the tutorial teaches tricks).
+// This listens first, before the button below starts the tutorial.
+window.addEventListener('keydown', () => tricks.noteKeyboard(), true);
 
 // What the one button does depends on which screen we're on
 createInput({
@@ -128,14 +182,25 @@ createInput({
     unlockAudio(); // browsers only allow sound after a press
     if (ui.isPanelOpen()) return;
     if (screen === 'playing') game.press();
-    else if (screen === 'title') startRun(document.activeElement?.dataset?.mode || mode);
+    else if (screen === 'tutorial') {
+      const card = tutorial.press(game);
+      if (card === null) game.press();
+      else if (card === 'done') skipTutorial();
+    } else if (screen === 'title') startRun(document.activeElement?.dataset?.mode || mode);
     else if (screen === 'paused') resume(); // this press only un-pauses
     else if (screen === 'gameover' && performance.now() - diedAt > RESTART_MS) startRun();
   },
   onRelease() {
-    if (screen === 'playing') game.release();
+    if (screen === 'playing' || screen === 'tutorial') game.release();
   },
   onFocusLost: pause,
+});
+// Esc skips the tutorial. Letter keys do tricks in mid-air.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && screen === 'tutorial') skipTutorial();
+  const playing = screen === 'playing' || (screen === 'tutorial' && tutorial.isPlaying());
+  if (ui.isPanelOpen()) return;
+  if (tricks.key(e, playing ? game : null) && playing) e.preventDefault();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pause();
@@ -171,7 +236,10 @@ function frame(now) {
   lastTime = now;
   if (dt > 250) dt = 250; // after a long pause, don't try to catch up
 
-  if (screen === 'playing') {
+  // The tutorial runs the game only during lessons (not on its cards)
+  const running = screen === 'playing' || (screen === 'tutorial' && tutorial.isPlaying());
+  if (running) {
+    tricks.update(dt / 1000, game);
     timeBank += dt;
     // A little slack (3%) stops tiny timer wobbles from giving one frame two
     // updates and the next frame none. Leftover time carries over, so the
@@ -188,20 +256,25 @@ function frame(now) {
   }
   if (screen === 'crashed' && now - diedAt > CRASH_MS) showGameOver();
 
-  const events = game.take_events();
+  let events = game.take_events();
   if (screen === 'playing' || screen === 'crashed') earnCoins(events);
+  if (screen === 'tutorial') {
+    tutorial.update(dt / 1000, events, game);
+    events &= ~EVENT.ZONE_CHANGE; // no "+100" pop-ups in the tutorial
+  }
   playEvents(events, game);
   effects.handle(events, game);
-  effects.update(dt / 1000, game, screen === 'playing');
+  effects.update(dt / 1000, game, running);
 
   // How far we are between the last update and the next one (0 to 1)
-  const blend = screen === 'playing' ? Math.min(1, Math.max(0, timeBank / STEP_MS)) : 1;
+  const blend = running ? Math.min(1, Math.max(0, timeBank / STEP_MS)) : 1;
   const scroll = game.scroll();
   const blendedScroll = before.scroll + (scroll - before.scroll) * blend;
   const y = game.player()[1];
   const donut = game.donut_x();
   const view = {
     effects,
+    tricks: screen === 'title' ? null : tricks,
     best,
     runCoins,
     events,
@@ -210,9 +283,10 @@ function frame(now) {
     obstacleShift: scroll - blendedScroll, // obstacles were this much further right
     playerY: Math.abs(y - before.y) > 40 ? y : before.y + (y - before.y) * blend,
     donutX: before.donut < -9000 ? donut : before.donut + (donut - before.donut) * blend,
+    tutorial: screen === 'tutorial' || (screen === 'paused' && pausedFrom === 'tutorial') ? tutorial : null,
   };
   if (screen === 'title') renderer.drawTitle(view);
-  else renderer.drawGame(game, view, screen === 'paused' ? 0 : dt / 1000);
+  else renderer.drawGame(game, view, screen === 'paused' || !running && screen === 'tutorial' ? 0 : dt / 1000);
   requestAnimationFrame(frame);
 }
 
@@ -231,13 +305,16 @@ async function start() {
 start();
 
 // Lets automated tests peek at the game while developing (not in the real build)
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   window.__obc = {
     get game() {
       return game;
     },
     get screen() {
       return screen;
+    },
+    get tricks() {
+      return tricks;
     },
   };
 }

@@ -1,0 +1,15 @@
+{
+  "name": "chaos-core",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "chaos_core_bg.wasm",
+    "chaos_core.js",
+    "chaos_core.d.ts"
+  ],
+  "main": "chaos_core.js",
+  "types": "chaos_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

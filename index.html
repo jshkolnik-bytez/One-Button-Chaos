@@ -22,23 +22,44 @@
 
       <!-- Title screen buttons (the logo, the boy and the city are drawn on the canvas) -->
       <section id="title-screen" class="screen title" hidden>
-        <div class="modes">
-          <button id="play-daily" class="pixel-button primary" type="button" data-mode="daily">
-            DAILY CHAOS <span id="daily-day"></span>
+        <!-- The main menu, on the right -->
+        <nav class="menu" aria-label="Main menu">
+          <button id="play-daily" class="pixel-button primary play" type="button" data-mode="daily">
+            <span class="play-big">PLAY</span>
+            <span class="play-small">DAILY CHAOS &middot; <span id="daily-day"></span></span>
           </button>
-          <button id="play-free" class="pixel-button" type="button" data-mode="free">FREE PLAY</button>
-          <button class="pixel-button shop-button" type="button">SHOP</button>
-        </div>
-        <p class="title-best">
-          BEST <span id="best-score">000000</span> &middot; TODAY <span id="daily-best">000000</span> &middot;
-          <span class="coin"></span> <span class="coin-count">0</span>
-        </p>
+          <button id="play-free" class="pixel-button menu-item" type="button" data-mode="free">
+            <span>FREE PLAY</span><span class="hint">NEW CITY</span>
+          </button>
+          <button class="pixel-button menu-item shop-button" type="button">
+            <span>SHOP</span><span class="hint"><span class="coin"></span> <span class="coin-count">0</span></span>
+          </button>
+          <button id="play-tutorial" class="pixel-button menu-item" type="button">
+            <span>TUTORIAL</span><span class="hint">LEARN IT</span>
+          </button>
+          <div class="stats">
+            <p><span class="stat-label">BEST</span><span id="best-score">000000</span></p>
+            <p><span class="stat-label">TODAY</span><span id="daily-best">000000</span></p>
+          </div>
+        </nav>
+
+        <!-- Who you're skating as (tap to change in the shop) -->
+        <button id="loadout-plate" class="loadout shop-button" type="button">
+          <span id="loadout-name" class="loadout-name">JAY</span>
+          <span id="loadout-power" class="loadout-power">COMBO KING</span>
+          <span id="loadout-board" class="loadout-board">ON CLASSIC</span>
+        </button>
         <p class="credits">
           MADE BY JSHKOLNIK &middot;
           <button class="link more-games-button" type="button">MORE GAMES</button> &middot;
           <button class="link mute-button" type="button">SOUND ON</button>
         </p>
       </section>
+
+      <!-- During the tutorial: a way out -->
+      <div id="tutorial-bar" data-menu hidden>
+        <button id="skip-tutorial" class="pixel-button" type="button">SKIP TUTORIAL</button>
+      </div>
 
       <!-- Pause screen (shows when you switch tabs or windows) -->
       <section id="pause-screen" class="screen" hidden>

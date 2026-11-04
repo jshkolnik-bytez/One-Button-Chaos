@@ -36,6 +36,14 @@ pub enum Kind {
     Pigeons = 16,
     // Crosswalk
     Junction = 17,
+    // (18 is the donut, see DONUT_KIND)
+    // Highway
+    StalledCar = 19,
+    Roadwork = 20,
+    Pothole = 21,
+    // Seaside Pier
+    WaterGap = 22,
+    Gulls = 23,
 }
 
 /// Not an obstacle: the "kind" reported when the donut catches you
@@ -67,12 +75,27 @@ impl Kind {
             Kind::Bike => (28.0, 18.0),
             Kind::Pigeons => (24.0, 12.0),
             Kind::Junction => (56.0, 4.0),
+            Kind::StalledCar => (44.0, 22.0),
+            Kind::Roadwork => (22.0, 18.0),
+            Kind::Pothole => (26.0, 4.0),
+            Kind::WaterGap => (120.0, HEIGHT - GROUND_Y),
+            Kind::Gulls => (26.0, 14.0),
         }
     }
 
     /// Market Street things break when you dash into them
     pub fn breakable(self) -> bool {
         matches!(self, Kind::Crates | Kind::Cart | Kind::Bike | Kind::Pigeons)
+    }
+
+    /// Highway things sit in one of the two lanes
+    pub fn in_lane(self) -> bool {
+        matches!(self, Kind::StalledCar | Kind::Roadwork | Kind::Pothole)
+    }
+
+    /// Holes you fall through (the rooftops' alleys and the pier's broken planks)
+    pub fn is_hole(self) -> bool {
+        matches!(self, Kind::Gap | Kind::WaterGap)
     }
 }
 
@@ -92,12 +115,16 @@ pub struct Obstacle {
     pub t0: u32,
     pub t1: u32,
     pub paint: u8, // which car (or any other look variation)
+    // Tutorial: did he hit it (and so passes through it), and has he got past it?
+    pub bumped: bool,
+    pub passed: bool,
+    pub lane: u8, // Highway: 0 = front lane, 1 = back lane
 }
 
 impl Obstacle {
     fn new(kind: Kind, zone: Zone, x: f32, y: f32) -> Obstacle {
         let (w, h) = kind.size();
-        Obstacle { kind, zone, x, y, w, h, t0: NO_CAR, t1: NO_CAR, paint: 0 }
+        Obstacle { kind, zone, x, y, w, h, t0: NO_CAR, t1: NO_CAR, paint: 0, bumped: false, passed: false, lane: 0 }
     }
 
     /// Standing on the floor with its left edge at x
@@ -254,6 +281,53 @@ fn crosswalk_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
     Kind::Junction.size().0 + g.speed * g.rng.range(1.2, 1.7)
 }
 
+/// Highway: stalled cars, roadworks and potholes in one lane or the other.
+/// Tap to switch to the clear lane.
+fn highway_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
+    let place = |g: &mut Game, lane: u8, x: f32| {
+        let kind = match g.rng.int(100) {
+            0..45 => Kind::StalledCar,
+            45..75 => Kind::Roadwork,
+            _ => Kind::Pothole,
+        };
+        let (w, h) = kind.size();
+        let mut o = Obstacle::new(kind, zone, x, GROUND_Y - LANE_GAP * lane as f32 - h);
+        o.lane = lane;
+        o.paint = g.rng.int(4) as u8;
+        g.obstacles.push(o);
+        w
+    };
+    let lane = g.rng.int(2) as u8;
+    let w = place(g, lane, x);
+    if g.rng.int(100) < 35 {
+        // ...and soon after, something in the other lane: switch, then switch back
+        let x2 = x + w + (g.speed * 0.55).round();
+        let w2 = place(g, 1 - lane, x2);
+        return x2 - x + w2 + g.speed * g.rng.range(0.75, 1.1);
+    }
+    w + g.speed * g.rng.range(0.7, 1.1)
+}
+
+/// Seaside Pier: broken bits of pier over the sea (fly over them with the
+/// kite), often with seagulls in the way at some height.
+fn pier_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
+    let w = (g.speed * g.rng.range(0.9, 1.6)).round();
+    let mut hole = Obstacle::new(Kind::WaterGap, zone, x, GROUND_Y);
+    hole.w = w;
+    g.obstacles.push(hole);
+    let roll = g.rng.int(100);
+    if roll < 70 {
+        let gy = g.rng.range(110.0, 175.0).round();
+        let gx = x + (w * g.rng.range(0.3, 0.6)).round();
+        g.obstacles.push(Obstacle::new(Kind::Gulls, zone, gx, gy));
+        if roll < 25 && w > g.speed * 1.2 {
+            let gy2 = if gy < 142.0 { gy + 50.0 } else { gy - 50.0 };
+            g.obstacles.push(Obstacle::new(Kind::Gulls, zone, gx + (g.speed * 0.45).round(), gy2));
+        }
+    }
+    w + g.speed * g.rng.range(0.55, 0.9)
+}
+
 fn make_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
     match zone {
         Zone::Downtown => downtown_chunk(g, zone, x),
@@ -263,6 +337,8 @@ fn make_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
         Zone::Market => market_chunk(g, zone, x),
         Zone::Crosswalk => crosswalk_chunk(g, zone, x),
         Zone::ParkHill => g.speed * 0.5, // nothing on the path: the donut is enough
+        Zone::Highway => highway_chunk(g, zone, x),
+        Zone::Pier => pier_chunk(g, zone, x),
     }
 }
 
@@ -274,7 +350,7 @@ fn make_chunk(g: &mut Game, zone: Zone, x: f32) -> f32 {
 /// Returns None if nothing fits right now.
 fn choose_zone(g: &Game, x: f32) -> Option<Zone> {
     let next = g.order[(g.zone_index + 1) % g.order.len()];
-    if next == g.zone {
+    if next == g.zone || g.tutorial {
         return Some(g.zone);
     }
 
@@ -306,8 +382,21 @@ pub fn spawn_obstacles(g: &mut Game, dx: f32) {
 
 /// Called every tick: slides everything left and forgets what's off screen.
 pub fn move_obstacles(g: &mut Game, dx: f32) {
+    let (px, zone) = (g.player.x, g.zone);
+    let mut cleared = None;
     for o in g.obstacles.iter_mut() {
         o.x -= dx;
+        // Tutorial: count things he got past without hitting them
+        if !o.passed && o.zone == zone && o.x + o.w < px {
+            o.passed = true;
+            if !o.bumped {
+                cleared = Some(o.kind as u8);
+            }
+        }
+    }
+    if let Some(kind) = cleared {
+        g.last_cleared = kind;
+        g.events |= event::CLEAR;
     }
     g.obstacles.retain(|o| o.x + o.w > -60.0);
 }

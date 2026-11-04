@@ -15,9 +15,17 @@ Made by **jshkolnik**.
 | Construction | HOLD | Duck under swinging beams (your legs get tired if you hold too long) |
 | Market Street | TAP | Dash and smash through crates, carts and pigeons |
 | Crosswalk | HOLD | Brake and wait while cars cross |
-| Park Hill | MASH | Outrun a giant runaway donut |
+| Park Hill | MASH | Outrun a giant runaway donut (it gets angry and surges every few seconds!) |
+| Highway | TAP | Switch lanes to dodge broken-down cars, roadworks and potholes |
+| Seaside Pier | HOLD | Fly your kite over the broken bits of pier, and dodge the seagulls |
 
 A sign drops in 2 seconds before each change. The city speeds up 5% every zone.
+
+## Tricks
+
+When you ollie (Downtown, or a big jump on the Rooftops), two letter keys pop up above your skater. Press both before you land to do a trick for bonus points. There are 8 tricks, from a Kickflip (+100) to a 360 Flip (+280), and each one spins the board its own way. Land more than one in the same jump for a combo: x2, x3...
+
+The keys for your next trick show faintly above your head while you ride, so you can get ready. A wrong key resets them, so mashing the whole keyboard doesn't work!
 
 ## The crew and boards
 

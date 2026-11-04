@@ -124,6 +124,23 @@ export const sound = {
   unlock: () =>
     [784, 988, 1175, 1568].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.14, vol: 0.1, delay: 0.5 + i * 0.09 })),
   click: () => tone({ freq: 600, type: 'triangle', dur: 0.05, vol: 0.12 }),
+  // Highway: a quick swish sideways
+  swerve: () => {
+    noise({ dur: 0.08, vol: 0.12, cutoff: 5000 });
+    tone({ freq: 420, to: 560, type: 'triangle', dur: 0.07, vol: 0.08 });
+  },
+  // Park Hill: the donut growls and speeds up
+  surge: () => {
+    tone({ freq: 90, to: 60, type: 'sawtooth', dur: 0.4, vol: 0.16 });
+    noise({ dur: 0.3, vol: 0.12, cutoff: 500 });
+  },
+  // A trick! Higher notes for bigger combos
+  trick: (combo = 1) => {
+    const base = 660 * Math.pow(1.12, Math.min(combo, 6) - 1);
+    noise({ dur: 0.06, vol: 0.15, cutoff: 6000 });
+    tone({ freq: base, to: base * 1.5, type: 'square', dur: 0.08, vol: 0.09 });
+    tone({ freq: base * 1.5, to: base * 2, type: 'triangle', dur: 0.14, vol: 0.12, delay: 0.07 });
+  },
 };
 
 let lastCount = 0; // for the countdown beeps
@@ -142,6 +159,8 @@ export function playEvents(events, game) {
   if (events & EVENT.CAR) sound.horn();
   if (events & EVENT.DOUBLE_JUMP) sound.doubleJump();
   if (events & EVENT.SHIELD) sound.shield();
+  if (events & EVENT.SWITCH) sound.swerve();
+  if (events & EVENT.SURGE) sound.surge();
   if (events & EVENT.WARNING && changing) sound.alarm();
   if (events & EVENT.ZONE_CHANGE) sound.zoneChange();
   if (events & EVENT.DIED) sound.crash();

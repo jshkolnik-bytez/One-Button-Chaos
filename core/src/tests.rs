@@ -156,6 +156,8 @@ fn options(zone: Zone) -> &'static [Action] {
         Zone::Downtown | Zone::Subway | Zone::Market | Zone::ParkHill => &[Action::Idle, Action::Tap],
         Zone::Rooftops | Zone::Crosswalk => &[Action::Idle, Action::Hold],
         Zone::Construction => &[Action::Idle, Action::Hold, Action::Repress],
+        Zone::Highway => &[Action::Idle, Action::Tap],
+        Zone::Pier => &[Action::Idle, Action::Hold],
     }
 }
 
@@ -289,9 +291,10 @@ fn mash(per_second: f32, speed_mult: f32) -> bool {
 
 #[test]
 fn park_hill_needs_real_mashing_but_not_superhuman_mashing() {
-    assert!(mash(5.5, MAX_SPEED), "5.5 taps a second should be enough even at top speed");
-    assert!(mash(4.0, 1.0), "4 taps a second should be enough at the start");
-    assert!(!mash(2.5, 1.0), "2.5 taps a second is too lazy");
+    assert!(mash(7.0, MAX_SPEED), "7 taps a second should be enough even at top speed");
+    assert!(mash(5.0, 1.0), "5 taps a second should be enough at the start");
+    assert!(!mash(4.0, 1.0), "4 taps a second is too lazy now: the donut got angrier");
+    assert!(!mash(5.5, MAX_SPEED), "at top speed you really have to mash");
 }
 
 // ---------- Holding forever doesn't work either ----------
@@ -556,4 +559,151 @@ fn gloria_slows_the_donut_and_the_rocket_pushes_harder() {
     let jay = gap_after(perks::JAY, perks::CLASSIC);
     assert!(gap_after(perks::GLORIA, perks::CLASSIC) > jay);
     assert!(gap_after(perks::JAY, perks::ROCKET) > jay);
+}
+
+// ---------- The tutorial ----------
+
+#[test]
+fn the_tutorial_never_ends_the_run_and_counts_what_you_clear() {
+    for zone in Zone::ALL {
+        let mut g = Game::new(42);
+        g.set_tutorial(true);
+        g.tutorial_zone(zone as u8);
+        let (mut bumps, mut clears) = (0, 0);
+        for _ in 0..ZONE_TICKS * 2 {
+            g.update(); // doing nothing at all
+            let e = g.take_events();
+            if e & event::BUMP != 0 {
+                bumps += 1;
+            }
+            if e & event::CLEAR != 0 {
+                clears += 1;
+            }
+        }
+        assert!(!g.dead, "{zone:?}: the tutorial can't kill you");
+        assert_eq!(g.zone, zone, "{zone:?}: the zone stays put");
+        assert!(bumps > 0, "{zone:?}: doing nothing should bump into things");
+        if zone != Zone::ParkHill {
+            assert!(clears < 20, "{zone:?}: doing nothing shouldn't clear much ({clears})");
+        }
+    }
+}
+
+#[test]
+fn the_tutorial_counts_a_clean_ollie() {
+    let mut g = Game::new(42);
+    g.set_tutorial(true);
+    g.tutorial_zone(Zone::Downtown as u8);
+    let mut clears = 0;
+    // A bot that plays well should rack up clean clears
+    for _ in 0..(ZONE_TICKS / STEP) {
+        let mut chosen = Action::Idle;
+        for &a in options(g.zone) {
+            let mut c = g.clone();
+            c.set_tutorial(false);
+            act(&mut c, a);
+            for _ in 0..STEP {
+                c.update();
+            }
+            if can_survive(&c, 100, &mut 6000) {
+                chosen = a;
+                break;
+            }
+        }
+        act(&mut g, chosen);
+        for _ in 0..STEP {
+            g.update();
+            if g.take_events() & event::CLEAR != 0 {
+                clears += 1;
+            }
+        }
+    }
+    assert!(clears >= 3, "only {clears} clean clears");
+}
+
+#[test]
+#[ignore]
+fn print_mash_limits() {
+    for m in [1.0, 1.5, 2.0, MAX_SPEED] {
+        let mut lo = 0.0;
+        for r in (20..120).map(|x| x as f32 / 10.0) {
+            if mash(r, m) { lo = r; break; }
+        }
+        println!("speed {m}: needs {lo} taps/s");
+    }
+}
+
+// ---------- The new zones ----------
+
+#[test]
+fn highway_tap_switches_lanes() {
+    let mut g = game_in_zone(5, Zone::Highway, 1.0);
+    zones::enter_zone(&mut g);
+    g.press();
+    g.release();
+    for _ in 0..20 {
+        g.obstacles.clear();
+        g.update();
+    }
+    assert_eq!(g.player.lane, 1);
+    assert!((g.player.lane_pos - 1.0).abs() < 0.001);
+    assert!((g.player.y + g.player.h - (GROUND_Y - LANE_GAP)).abs() < 0.01, "he rides higher up in the back lane");
+    g.press();
+    g.release();
+    for _ in 0..20 {
+        g.obstacles.clear();
+        g.update();
+    }
+    assert_eq!(g.player.lane_pos, 0.0);
+}
+
+#[test]
+fn highway_never_blocks_both_lanes_at_once() {
+    for seed in 0..40 {
+        let mut g = game_in_zone(seed, Zone::Highway, MAX_SPEED);
+        g.invincible = true;
+        for _ in 0..ZONE_TICKS - 30 {
+            g.update();
+        }
+        let cars: Vec<_> = g.obstacles.iter().filter(|o| o.kind.in_lane()).collect();
+        for a in &cars {
+            for b in &cars {
+                if a.lane != b.lane {
+                    assert!(a.x + a.w + 40.0 < b.x || b.x + b.w + 40.0 < a.x, "seed {seed}: both lanes blocked");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn pier_hold_flies_but_not_off_the_top() {
+    let mut g = game_in_zone(5, Zone::Pier, 1.0);
+    g.press();
+    for _ in 0..240 {
+        g.obstacles.clear();
+        g.update();
+    }
+    assert!(!g.player.grounded);
+    assert!(g.player.y >= FLY_TOP && g.player.y < FLY_TOP + 1.0);
+    g.release();
+    for _ in 0..120 {
+        g.obstacles.clear();
+        g.update();
+    }
+    assert!(g.player.grounded, "letting go, he floats back down onto the pier");
+}
+
+#[test]
+fn tricks_only_count_in_the_air() {
+    let mut g = game_in_zone(5, Zone::Downtown, 1.0);
+    assert!(!g.trick(100), "no tricks on the ground");
+    g.press();
+    g.release();
+    g.update();
+    let before = g.points;
+    assert!(g.trick(100));
+    assert_eq!(g.points - before, 100);
+    assert!(g.trick(99999));
+    assert_eq!(g.points - before, 100 + MAX_TRICK_POINTS, "one trick can't be worth millions");
 }

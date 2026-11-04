@@ -23,6 +23,8 @@ export const ZONES = [
   { name: 'Market Street', button: 'TAP', action: 'DASH', accent: '#7bd389', hint: 'TAP TO SMASH THROUGH' },
   { name: 'Crosswalk', button: 'HOLD', action: 'BRAKE', accent: '#ff6b6b', hint: 'HOLD TO STOP FOR CARS' },
   { name: 'Park Hill', button: 'MASH', action: 'PUSH', accent: '#c38bff', hint: 'MASH TO OUTRUN THE DONUT' },
+  { name: 'Highway', button: 'TAP', action: 'SWITCH LANE', accent: '#e05cff', hint: 'TAP TO SWITCH LANES' },
+  { name: 'Seaside Pier', button: 'HOLD', action: 'FLY', accent: '#4fc3f7', hint: 'HOLD TO FLY YOUR KITE' },
 ];
 
 export const ZONE = {
@@ -33,7 +35,14 @@ export const ZONE = {
   MARKET: 4,
   CROSSWALK: 5,
   PARK_HILL: 6,
+  HIGHWAY: 7,
+  PIER: 8,
 };
+
+// Highway: two lanes. The back lane's road is this many pixels higher up the screen.
+export const LANE_GAP = 14;
+// Seaside Pier: the highest he can fly with his kite
+export const FLY_TOP = 70;
 
 // Obstacle kinds, numbered like Kind in core/src/obstacles.rs.
 // Sizes (w x h) are the hitbox AND the picture size, unless noted.
@@ -63,6 +72,15 @@ export const KIND = {
   // Crosswalk
   JUNCTION: 17, // a side street crossing the pavement: w = 56, y = GROUND_Y - 4, h = 4.
   //               a = car progress (see core/src/obstacles.rs), b = car paint (0-3)
+  // (18 is the donut: not an obstacle, but used for "what got you")
+  // Highway (b = lane: 0 = front lane, wheels at GROUND_Y; 1 = back lane, wheels at GROUND_Y - LANE_GAP;
+  //          a = paint 0-3). Each stands on its lane's road: y = lane road - h.
+  STALLED_CAR: 19, // 44 x 22, a broken-down car with its hazard lights on
+  ROADWORK: 20, // 22 x 18, a striped roadworks barrier with a flashing lamp
+  POTHOLE: 21, // 26 x 4, a hole in the road (flat)
+  // Seaside Pier
+  WATER_GAP: 22, // a broken bit of pier with the sea below: y = GROUND_Y, any width, h = 36
+  GULLS: 23, // 26 x 14, a flock of seagulls flying in the air (any height between FLY_TOP and the deck)
 };
 
 // Which picture of the boy to show, numbered like Pose in core/src/lib.rs
@@ -96,6 +114,10 @@ export const EVENT = {
   ZONE_CHANGE: 2048,
   DIED: 4096,
   SHIELD: 8192, // Tony shrugged off a crash
+  BUMP: 16384, // tutorial: would have crashed ("OOPS!")
+  CLEAR: 32768, // tutorial: got past something cleanly
+  SURGE: 65536, // Park Hill: the donut gets angry and speeds up for a moment
+  SWITCH: 131072, // Highway: changed lanes
 };
 
 // Numbers per obstacle in game.obstacles(): x, y, w, h, kind, a, b

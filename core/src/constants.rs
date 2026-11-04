@@ -66,8 +66,24 @@ pub const CAR_WARN_TICKS: u32 = 30; // the horn honks this long before a car cro
 pub const DONUT_SIZE: f32 = 52.0;
 pub const DONUT_START_GAP: f32 = 110.0; // starts off screen
 pub const DONUT_MAX_GAP: f32 = 120.0;
-pub const DONUT_PUSH: f32 = 11.0; // each press gains this much
-pub const DONUT_APPROACH: f32 = 38.0; // px per second it catches up (more when faster)
+pub const DONUT_PUSH: f32 = 10.5; // each press gains this much
+pub const DONUT_APPROACH: f32 = 44.0; // px per second it catches up (more when faster)
+pub const DONUT_SURGE_EVERY: u32 = 170; // every ~3 seconds it gets angry...
+pub const DONUT_SURGE_TICKS: u32 = 45; // ...and rolls twice as fast for 3/4 of a second
+
+// Highway: tap to switch between two lanes
+pub const LANE_GAP: f32 = 14.0; // the back lane is this much higher up the screen
+pub const LANE_SWITCH_SPEED: f32 = 8.0; // lanes per second (a switch takes 1/8 s)
+
+// Seaside Pier: hold to fly with a kite, let go to sink
+pub const PIER_GRAVITY: f32 = 900.0;
+pub const FLY_LIFT: f32 = 900.0; // upward pull while holding
+pub const FLY_MAX_UP: f32 = 220.0;
+pub const FLY_MAX_DOWN: f32 = 280.0;
+pub const FLY_TOP: f32 = 70.0; // the kite can't take him higher than this
+
+// Tricks: bonus points for tricks in mid-air (one trick can't be worth more than this)
+pub const MAX_TRICK_POINTS: u32 = 2000;
 
 /// Things that happened during an update, as bit flags (several can happen
 /// in the same tick). JavaScript plays sounds and effects for these.
@@ -87,4 +103,8 @@ pub mod event {
     pub const ZONE_CHANGE: u32 = 2048;
     pub const DIED: u32 = 4096;
     pub const SHIELD: u32 = 8192;
+    pub const BUMP: u32 = 16384; // tutorial: would have crashed ("OOPS!")
+    pub const CLEAR: u32 = 32768; // tutorial: got past something cleanly
+    pub const SURGE: u32 = 65536; // the donut gets angry and speeds up
+    pub const SWITCH: u32 = 131072; // Highway: changed lanes
 }

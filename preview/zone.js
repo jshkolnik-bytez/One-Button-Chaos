@@ -47,6 +47,17 @@ const SAMPLES = {
     { kind: KIND.JUNCTION, x: 380, y: G - 4, w: 56, h: 4, a: -999, b: 2 },
   ],
   'park-hill': [],
+  highway: [
+    { kind: KIND.STALLED_CAR, x: 140, y: G - 22, w: 44, h: 22, a: 1, b: 0 },
+    { kind: KIND.ROADWORK, x: 230, y: G - 14 - 18, w: 22, h: 18, a: 0, b: 1 },
+    { kind: KIND.POTHOLE, x: 300, y: G - 4, w: 26, h: 4, a: 0, b: 0 },
+    { kind: KIND.STALLED_CAR, x: 360, y: G - 14 - 22, w: 44, h: 22, a: 2, b: 1 },
+  ],
+  pier: [
+    { kind: KIND.WATER_GAP, x: 150, y: G, w: 160, h: 36 },
+    { kind: KIND.GULLS, x: 220, y: 130, w: 26, h: 14 },
+    { kind: KIND.GULLS, x: 380, y: 170, w: 26, h: 14 },
+  ],
 };
 
 await document.fonts.load('8px "Press Start 2P"').catch(() => {});

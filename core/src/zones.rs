@@ -4,7 +4,7 @@
 use crate::Game;
 use crate::constants::*;
 use crate::obstacles::{DONUT_KIND, Kind, NO_CAR};
-use crate::physics::{die, move_vertical, smash_things};
+use crate::physics::{die, fell_in_hole, move_vertical, smash_things};
 use crate::rng::Rng;
 
 /// The zones. The numbers must match ZONES in src/world.js.
@@ -18,11 +18,13 @@ pub enum Zone {
     Market = 4,       // TAP = dash
     Crosswalk = 5,    // HOLD = brake
     ParkHill = 6,     // MASH = push
+    Highway = 7,      // TAP = switch lane
+    Pier = 8,         // HOLD = fly with a kite
 }
 
 impl Zone {
     /// The zones a run can visit
-    pub const ALL: [Zone; 7] = [
+    pub const ALL: [Zone; 9] = [
         Zone::Downtown,
         Zone::Rooftops,
         Zone::Subway,
@@ -30,6 +32,8 @@ impl Zone {
         Zone::Market,
         Zone::Crosswalk,
         Zone::ParkHill,
+        Zone::Highway,
+        Zone::Pier,
     ];
 
     /// Button down
@@ -48,6 +52,12 @@ impl Zone {
             }
             Zone::Market => try_dash(g),
             Zone::Crosswalk => g.events |= event::BRAKE,
+            Zone::Highway => try_switch(g),
+            Zone::Pier => {
+                if g.player.grounded {
+                    g.events |= event::JUMP; // the kite lifts him off
+                }
+            }
             Zone::ParkHill => {
                 g.donut_gap = (g.donut_gap + g.donut_push()).min(DONUT_MAX_GAP);
                 g.events |= event::PUSH;
@@ -91,6 +101,40 @@ impl Zone {
                     try_flip(g);
                 }
             }
+            Zone::Highway => {
+                if !g.player.grounded {
+                    // still landing from the zone before
+                    let landed = move_vertical(g, GRAVITY);
+                    if landed && g.player.buffer > 0 {
+                        try_switch(g);
+                    }
+                } else {
+                    let p = &mut g.player;
+                    let target = p.lane as f32;
+                    let step = LANE_SWITCH_SPEED * TICK;
+                    p.lane_pos = if p.lane_pos < target { (p.lane_pos + step).min(target) } else { (p.lane_pos - step).max(target) };
+                    p.y = GROUND_Y - LANE_GAP * p.lane_pos - p.h;
+                }
+            }
+            Zone::Pier => {
+                // Holding pulls him up with the kite; letting go, he sinks
+                let gravity = if g.held { -FLY_LIFT } else { PIER_GRAVITY };
+                move_vertical(g, gravity);
+                let p = &mut g.player;
+                p.vy = p.vy.clamp(-FLY_MAX_UP, FLY_MAX_DOWN);
+                if p.y < FLY_TOP {
+                    p.y = FLY_TOP;
+                    p.vy = p.vy.max(0.0);
+                }
+                // Pulled back up out of a hole by the kite: the pier counts as solid again
+                if p.in_gap && p.y + p.h < GROUND_Y - 1.0 {
+                    p.in_gap = false;
+                }
+                // Splash! Touching the sea through a broken bit of pier
+                if p.in_gap && p.y + p.h > GROUND_Y + 8.0 {
+                    fell_in_hole(g);
+                }
+            }
         }
 
         match self {
@@ -124,7 +168,13 @@ impl Zone {
             }
             Zone::Crosswalk => crosswalk_tick(g),
             Zone::ParkHill => {
-                let catch_up = g.donut_catch_up();
+                // Every few seconds the donut gets angry and surges forward
+                let phase = g.tick % DONUT_SURGE_EVERY;
+                if phase == DONUT_SURGE_EVERY - DONUT_SURGE_TICKS {
+                    g.events |= event::SURGE;
+                }
+                let surge = if phase >= DONUT_SURGE_EVERY - DONUT_SURGE_TICKS { 2.0 } else { 1.0 };
+                let catch_up = g.donut_catch_up() * surge;
                 g.donut_gap -= catch_up * TICK;
                 if g.donut_gap <= 0.0 {
                     die(g, DONUT_KIND);
@@ -178,6 +228,19 @@ fn try_flip(g: &mut Game) {
     }
 }
 
+/// Highway: change lanes (or remember the tap if he's still landing).
+fn try_switch(g: &mut Game) {
+    let buffer = g.buffer_ticks();
+    let p = &mut g.player;
+    if p.grounded {
+        p.lane = 1 - p.lane;
+        p.buffer = 0;
+        g.events |= event::SWITCH;
+    } else {
+        p.buffer = buffer;
+    }
+}
+
 /// Market: a burst of speed that smashes things.
 fn try_dash(g: &mut Game) {
     let (ticks, buffer) = (g.dash_ticks(), g.buffer_ticks());
@@ -206,12 +269,16 @@ fn crosswalk_tick(g: &mut Game) {
     let (left, right) = (g.player.x, g.player.x + g.player.w);
     let mut hit = false;
     let mut honk = false;
-    for o in &g.obstacles {
+    let tutorial = g.tutorial;
+    for o in g.obstacles.iter_mut() {
         if o.kind != Kind::Junction || o.zone != Zone::Crosswalk || o.t0 == NO_CAR {
             continue;
         }
-        if tick >= o.t0 && tick <= o.t1 && left < o.x + o.w - 2.0 && right > o.x + 2.0 {
+        if tick >= o.t0 && tick <= o.t1 && left < o.x + o.w - 2.0 && right > o.x + 2.0 && !o.bumped {
             hit = true;
+            if tutorial {
+                o.bumped = true;
+            }
         }
         if tick + CAR_WARN_TICKS == o.t0 && o.x < WIDTH {
             honk = true;
@@ -265,8 +332,18 @@ pub fn make_zone_order(rng: &mut Rng) -> Vec<Zone> {
 
 /// Called when a new zone starts: undo the old zone's special moves.
 pub fn enter_zone(g: &mut Game) {
+    let highway = g.zone == Zone::Highway;
     let p = &mut g.player;
     p.buffer = 0;
+    // Off the highway: back to one ground (he drops down from the back lane).
+    // (Highway after Highway: he stays in his lane.)
+    if !highway {
+        if p.lane_pos > 0.0 {
+            p.grounded = false;
+        }
+        p.lane = 0;
+        p.lane_pos = 0.0;
+    }
     p.hold_ticks = 0;
     p.dash_ticks = 0;
     p.dash_cooldown = 0;

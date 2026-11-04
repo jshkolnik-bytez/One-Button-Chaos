@@ -86,16 +86,68 @@ function frameFor(animation, t) {
 }
 
 // One frame: the board, then the skater, with the frame's top-left at (x, y)
-function drawFrame(ctx, f, x, y, crew = crewRow, board = boardRow) {
-  if (boardsImage) ctx.drawImage(boardsImage, f.x, board * FRAME, f.w, f.h, x, y, f.w, f.h);
+function drawFrame(ctx, f, x, y, crew = crewRow, board = boardRow, trick = null) {
+  if (boardsImage) {
+    if (trick) drawTrickBoard(ctx, f, x, y, board, trick);
+    else ctx.drawImage(boardsImage, f.x, board * FRAME, f.w, f.h, x, y, f.w, f.h);
+  }
   ctx.drawImage(crewImage, f.x, crew * FRAME, f.w, f.h, x, y, f.w, f.h);
+}
+
+// The board doing a trick under his feet (see TRICKS in tricks.js).
+// p goes from 0 to 1 over the trick. It drops a little below his feet so you
+// can see it turn, then comes back up to be caught.
+const boardMiddles = new Map(); // frame x -> where the board's middle is in that frame
+function boardMiddle(f) {
+  if (!boardMiddles.has(f.x)) {
+    // Measure the board's pixels once per frame (the board is in a different
+    // place in each pose: tilted on a pop, tucked up in the air...)
+    const c = document.createElement('canvas');
+    c.width = f.w;
+    c.height = f.h;
+    const cx = c.getContext('2d');
+    cx.drawImage(boardsImage, f.x, 0, f.w, f.h, 0, 0, f.w, f.h);
+    const data = cx.getImageData(0, 0, f.w, f.h).data;
+    let [l, r, t, b] = [f.w, -1, f.h, -1];
+    for (let py = 0; py < f.h; py++) {
+      for (let px = 0; px < f.w; px++) {
+        if (data[(py * f.w + px) * 4 + 3] > 0) {
+          l = Math.min(l, px);
+          r = Math.max(r, px);
+          t = Math.min(t, py);
+          b = Math.max(b, py);
+        }
+      }
+    }
+    boardMiddles.set(f.x, r < 0 ? { x: 24, y: 42 } : { x: Math.round((l + r + 1) / 2), y: Math.round((t + b + 1) / 2) });
+  }
+  return boardMiddles.get(f.x);
+}
+
+function drawTrickBoard(ctx, f, x, y, board, { p, flip = 0, spin = 0, roll = 0, lift = 0 }) {
+  const { x: BOARD_MIDDLE_X, y: BOARD_MIDDLE_Y } = boardMiddle(f);
+  const arc = Math.sin(p * Math.PI); // 0 -> 1 -> 0
+  const drop = Math.round(arc * (lift ? -lift : 5));
+  // Turning over along its length looks like squashing it up and down;
+  // spinning around flat looks like squashing it side to side
+  const sy = Math.cos(p * Math.PI * 2 * Math.abs(flip));
+  const sx = Math.cos(p * Math.PI * 2 * spin);
+  const snapScale = (v) => (Math.abs(v) < 0.12 ? 0.12 * Math.sign(v || 1) : Math.round(v * 8) / 8);
+  ctx.save();
+  ctx.translate(x + BOARD_MIDDLE_X, y + BOARD_MIDDLE_Y + drop);
+  if (roll) ctx.rotate(Math.round(p * 8 * roll) * (Math.PI / 4) * (flip < 0 ? -1 : 1));
+  ctx.scale(snapScale(sx), snapScale(sy));
+  // Upside down, you see the darker underside of the board
+  if (sy < 0 && 'filter' in ctx) ctx.filter = 'brightness(0.55)';
+  ctx.drawImage(boardsImage, f.x, board * FRAME, f.w, f.h, -BOARD_MIDDLE_X, -BOARD_MIDDLE_Y, f.w, f.h);
+  ctx.restore();
 }
 
 // Draws the skater with the body centred on `centerX` and the wheels on `footY`.
 // `turns` = quarter turns clockwise (for tumbling).
 // `upsideDown` = riding the Subway ceiling: footY is then the ceiling line,
 // and the skater hangs below it.
-export function drawBoy(ctx, animation, t, centerX, footY, { turns = 0, upsideDown = false } = {}) {
+export function drawBoy(ctx, animation, t, centerX, footY, { turns = 0, upsideDown = false, trick = null } = {}) {
   const left = Math.round(centerX) - bodyCenter;
   if (!crewImage) {
     // Stand-in until the sprite sheets are added: a box the size of the hitbox
@@ -118,7 +170,7 @@ export function drawBoy(ctx, animation, t, centerX, footY, { turns = 0, upsideDo
     return;
   }
   if (turns % 4 === 0) {
-    drawFrame(ctx, f, left, top);
+    drawFrame(ctx, f, left, top, crewRow, boardRow, trick);
     return;
   }
   // Turned: rotate around the middle of the frame in quarter turns,

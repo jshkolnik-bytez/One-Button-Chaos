@@ -47,6 +47,15 @@ export function recordScore(score, mode, day) {
   return result;
 }
 
+// Has the tutorial been finished or skipped? (It shows before your first run.)
+export function tutorialSeen() {
+  return load('tutorial-seen', false);
+}
+
+export function setTutorialSeen() {
+  save('tutorial-seen', true);
+}
+
 export function lastMode() {
   return load('mode', 'daily');
 }

@@ -26,6 +26,8 @@ pub struct Player {
     pub dash_ticks: u32,    // Market: ticks of dash left
     pub dash_cooldown: u32, // ...and of recovering after it
     pub air_jumps: u32,     // Nova: extra jumps left before landing
+    pub lane: u8,           // Highway: the lane he's heading for (0 front, 1 back)...
+    pub lane_pos: f32,      // ...and where he is between them right now
 }
 
 impl Player {
@@ -48,6 +50,8 @@ impl Player {
             dash_ticks: 0,
             dash_cooldown: 0,
             air_jumps: 0,
+            lane: 0,
+            lane_pos: 0.0,
         }
     }
 
@@ -64,6 +68,17 @@ impl Player {
 /// Ends the run and remembers which zone you crashed in.
 pub fn die(g: &mut Game, kind: u8) {
     if g.dead || g.invincible || g.safe_ticks > 0 {
+        return;
+    }
+    // Tutorial: no crashing, just an "OOPS!" (at most twice a second)
+    if g.tutorial {
+        if g.bump_ticks == 0 {
+            g.events |= event::BUMP;
+            g.bump_ticks = 30;
+        }
+        if kind == DONUT_KIND {
+            g.donut_gap = 80.0;
+        }
         return;
     }
     // Tony shrugs off his first crash
@@ -87,7 +102,7 @@ fn over_gap(g: &Game) -> bool {
     let cx = g.player.x + g.player.w / 2.0;
     g.obstacles
         .iter()
-        .any(|o| o.kind == Kind::Gap && cx > o.x + GAP_EDGE && cx < o.x + o.w - GAP_EDGE)
+        .any(|o| o.kind.is_hole() && cx > o.x + GAP_EDGE && cx < o.x + o.w - GAP_EDGE)
 }
 
 /// Moves the boy with gravity and lands him on the floor (or the ceiling).
@@ -145,17 +160,31 @@ pub fn move_vertical(g: &mut Game, gravity: f32) -> bool {
     }
     // Fell all the way down between the buildings
     if g.player.y > HEIGHT + 10.0 {
-        die(g, Kind::Gap as u8);
-        if !g.dead {
-            // Saved (Tony's shield, or testing): he bounces back up out of the gap
-            let p = &mut g.player;
-            p.in_gap = false;
-            p.y = GROUND_Y - p.h;
-            p.vy = -ROOF_JUMP_SPEED;
-            p.grounded = false;
-        }
+        fell_in_hole(g);
     }
     landed
+}
+
+/// He fell through a gap in the roofs or the pier. Usually that's the end,
+/// but if he's saved (Tony's shield, the tutorial, testing) he bounces back up.
+pub fn fell_in_hole(g: &mut Game) {
+    // (Tutorial: the hole he fell in doesn't count as cleared)
+    let cx = g.player.x + g.player.w / 2.0;
+    let mut kind = Kind::Gap;
+    for o in g.obstacles.iter_mut() {
+        if o.kind.is_hole() && cx > o.x - 20.0 && cx < o.x + o.w + 20.0 {
+            o.bumped = true;
+            kind = o.kind;
+        }
+    }
+    die(g, kind as u8);
+    if !g.dead {
+        let p = &mut g.player;
+        p.in_gap = false;
+        p.y = GROUND_Y - p.h;
+        p.vy = -ROOF_JUMP_SPEED;
+        p.grounded = false;
+    }
 }
 
 /// The part of an obstacle that actually hurts: (left, right, top, bottom).
@@ -172,6 +201,9 @@ fn hitbox(o: &Obstacle) -> (f32, f32, f32, f32) {
         Kind::CeilPipe => (l + 1.0, r - 1.0, t, b - 1.0),
         Kind::Beam | Kind::Bucket => (l + 2.0, r - 2.0, t, b),
         Kind::Pigeons => (l + 2.0, r - 2.0, t + 3.0, b),
+        Kind::Pothole => (l + 3.0, r - 3.0, t, b),
+        Kind::StalledCar => (l + 2.0, r - 2.0, t + 3.0, b),
+        Kind::Gulls => (l + 3.0, r - 3.0, t + 3.0, b - 3.0),
         _ => (l + 1.0, r - 1.0, t + 1.0, b),
     }
 }
@@ -181,8 +213,14 @@ fn hitbox(o: &Obstacle) -> (f32, f32, f32, f32) {
 pub fn find_crash(g: &Game) -> Option<usize> {
     let p = &g.player;
     g.obstacles.iter().position(|o| {
-        if o.zone != g.zone || matches!(o.kind, Kind::Gap | Kind::Junction) {
+        if o.zone != g.zone || o.bumped || matches!(o.kind, Kind::Gap | Kind::Junction | Kind::WaterGap) {
             return false;
+        }
+        // Highway: only things in his lane count (and he's in whichever lane he's nearer)
+        if o.kind.in_lane() {
+            let lane = if p.lane_pos < 0.5 { 0 } else { 1 };
+            let (l, r, _, _) = hitbox(o);
+            return o.lane == lane && p.x < r && p.x + p.w > l && p.y + p.h > o.y + 2.0;
         }
         let (l, r, t, b) = hitbox(o);
         p.x < r && p.x + p.w > l && p.y < b && p.y + p.h > t
