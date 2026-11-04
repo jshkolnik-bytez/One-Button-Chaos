@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Makes the game fit phone screens instead of showing a zoomed-out desktop page -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>One Button Chaos</title>
+    <meta name="description" content="Skate through the city with one button. Every zone changes what the button does." />
+    <!-- Tab icon: a red button emoji, drawn as a tiny SVG so we need no image file -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔴</text></svg>"
+    />
+    <script type="module" crossorigin src="./assets/index-gSVY-aQb.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-EuLH5qHe.css">
+  </head>
+  <body>
+    <!-- The stage is exactly the size of the (scaled-up) game canvas.
+         The menus sit inside it, so they scale with the pixels too. -->
+    <div id="stage">
+      <!-- The whole game is drawn on this one canvas -->
+      <canvas id="game"></canvas>
+
+      <!-- Title screen buttons (the logo, the boy and the city are drawn on the canvas) -->
+      <section id="title-screen" class="screen title" hidden>
+        <!-- The main menu, on the right -->
+        <nav class="menu" aria-label="Main menu">
+          <button id="play-daily" class="pixel-button primary play" type="button" data-mode="daily">
+            <span class="play-big">PLAY</span>
+            <span class="play-small">DAILY CHAOS &middot; <span id="daily-day"></span></span>
+          </button>
+          <button id="play-free" class="pixel-button menu-item" type="button" data-mode="free">
+            <span>FREE PLAY</span><span class="hint">NEW CITY</span>
+          </button>
+          <button class="pixel-button menu-item shop-button" type="button">
+            <span>SHOP</span><span class="hint"><span class="coin"></span> <span class="coin-count">0</span></span>
+          </button>
+          <button id="play-tutorial" class="pixel-button menu-item" type="button">
+            <span>TUTORIAL</span><span class="hint">LEARN IT</span>
+          </button>
+          <div class="stats">
+            <p><span class="stat-label">BEST</span><span id="best-score">000000</span></p>
+            <p><span class="stat-label">TODAY</span><span id="daily-best">000000</span></p>
+          </div>
+        </nav>
+
+        <!-- Who you're skating as (tap to change in the shop) -->
+        <button id="loadout-plate" class="loadout shop-button" type="button">
+          <span id="loadout-name" class="loadout-name">JAY</span>
+          <span id="loadout-power" class="loadout-power">COMBO KING</span>
+          <span id="loadout-board" class="loadout-board">ON CLASSIC</span>
+        </button>
+        <p class="credits">
+          MADE BY JSHKOLNIK &middot;
+          <button class="link more-games-button" type="button">MORE GAMES</button> &middot;
+          <button class="link mute-button" type="button">SOUND ON</button>
+        </p>
+      </section>
+
+      <!-- During the tutorial: a way out -->
+      <div id="tutorial-bar" data-menu hidden>
+        <button id="skip-tutorial" class="pixel-button" type="button">SKIP TUTORIAL</button>
+      </div>
+
+      <!-- Pause screen (shows when you switch tabs or windows) -->
+      <section id="pause-screen" class="screen" hidden>
+        <div class="panel">
+          <p class="big">PAUSED</p>
+          <p class="blink">PRESS TO KEEP RUNNING</p>
+        </div>
+      </section>
+
+      <!-- Game over screen -->
+      <section id="gameover-screen" class="screen" hidden>
+        <div class="panel">
+          <p id="death-message" class="message"></p>
+          <p class="label">SCORE</p>
+          <p id="final-score" class="big"></p>
+          <p id="new-best" class="new-best" hidden>NEW BEST!</p>
+          <p>BEST <span id="run-best"></span></p>
+          <p>DIED IN <span id="death-zone" class="zone-name"></span></p>
+          <p class="coins-line"><span class="coin"></span> +<span id="run-coins">0</span> &middot; TOTAL <span class="coin-count">0</span></p>
+          <p class="blink">PRESS TO RUN AGAIN</p>
+          <div class="buttons">
+            <button id="copy-button" class="pixel-button primary" type="button">COPY RESULT</button>
+            <button id="menu-button" class="pixel-button" type="button">MENU</button>
+            <button class="pixel-button shop-button" type="button">SHOP</button>
+            <button class="pixel-button more-games-button" type="button">MORE GAMES</button>
+            <button class="pixel-button mute-button" type="button">SOUND ON</button>
+          </div>
+          <p id="share-text" class="share-text" hidden></p>
+        </div>
+      </section>
+
+      <!-- The shop: unlock skaters and boards with the coins you earn by beating zones -->
+      <section id="shop" class="screen" data-menu hidden>
+        <div class="panel shop-panel">
+          <div class="shop-top">
+            <div class="tabs">
+              <button id="tab-crew" class="tab active" type="button">CREW</button>
+              <button id="tab-boards" class="tab" type="button">BOARDS</button>
+            </div>
+            <p class="shop-coins"><span class="coin"></span> <span class="coin-count">0</span></p>
+          </div>
+          <div id="skin-grid" class="skin-grid"></div>
+          <p id="shop-message" class="shop-message">BEAT ZONES TO EARN COINS</p>
+          <div class="buttons">
+            <button id="close-shop" class="pixel-button" type="button">BACK</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- "More games by jshkolnik" -->
+      <section id="more-games" class="screen" data-menu hidden>
+        <div class="panel">
+          <p class="label">MORE GAMES BY JSHKOLNIK</p>
+          <p class="big">SHARED RIVER</p>
+          <p class="message small-lines">
+            A turn-based strategy game about the Grand Ethiopian Renaissance Dam. Lead Ethiopia, Sudan or Egypt
+            through about 20 years on the Blue Nile, balancing your own needs against trust with the other two.
+            15 to 20 minutes, four different endings.
+          </p>
+          <div class="buttons">
+            <a id="shared-river-link" class="pixel-button primary" target="_blank" rel="noopener" hidden>PLAY SHARED RIVER</a>
+            <button id="close-more-games" class="pixel-button" type="button">BACK</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Only shows on phones held upright -->
+    <p id="rotate-tip">TURN YOUR PHONE SIDEWAYS<br />FOR A BIGGER CITY</p>
+
+    <!-- type="module" lets our JavaScript files import each other -->
+  </body>
+</html>
