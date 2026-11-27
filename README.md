@@ -75,3 +75,5 @@ The compiled Rust game is already in `core/pkg/`, so if you don't have wasm-pack
 - **JavaScript** (`src/`): reads the button, draws everything, plays sounds and runs the menus.
 - **Pixel art** is all drawn in code: the city zones in `src/art/`, and the skaters and boards by `tools/make_crew.py`.
 - **Tests**: `npm test` runs the Rust tests, including a bot that proves every zone can be beaten with every skater and board.
+
+https://jshkolnik-bytez.github.io/One-Button-Chaos/
